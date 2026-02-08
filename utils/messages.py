@@ -48,9 +48,8 @@ def dato(zh):
 
 
 # ================= APPROVED =================
-def approved_message(cc, last, gate_name, execution_time, dato_func):
+def approved_message(cc, last, gate_name, execution_time, dato_func, checked_by_text):
     info = dato_func(cc[:6])
-
     return f"""<b>#{gate_name} [{CHANNEL_ICON}] 🌩
 - - - - - - - - - - - - - - - - - - - - - -
 [{CHANNEL_ICON}] 𝐂𝐚𝐫𝐝: <code>{cc}</code>
@@ -69,9 +68,8 @@ def approved_message(cc, last, gate_name, execution_time, dato_func):
 
 
 # ================= CHARGED =================
-def charged_message(cc, last, gate_name, execution_time, dato_func):
+def charged_message(cc, last, gate_name, execution_time, dato_func, checked_by_text):
     info = dato_func(cc[:6])
-
     return f"""<b>#{gate_name} [{CHANNEL_ICON}] 🌩
 - - - - - - - - - - - - - - - - - - - - - -
 [{CHANNEL_ICON}] 𝐂𝐚𝐫𝐝: <code>{cc}</code>
@@ -90,9 +88,8 @@ def charged_message(cc, last, gate_name, execution_time, dato_func):
 
 
 # ================= FUNDS =================
-def insufficient_funds_message(cc, last, gate_name, execution_time, dato_func):
+def insufficient_funds_message(cc, last, gate_name, execution_time, dato_func, checked_by_text):
     info = dato_func(cc[:6])
-
     return f"""<b>#{gate_name} [{CHANNEL_ICON}] 🌩
 - - - - - - - - - - - - - - - - - - - - - -
 [{CHANNEL_ICON}] 𝐂𝐚𝐫𝐝: <code>{cc}</code>
@@ -111,9 +108,8 @@ def insufficient_funds_message(cc, last, gate_name, execution_time, dato_func):
 
 
 # ================= DECLINED =================
-def declined_message(cc, last, gate_name, execution_time, dato_func):
+def declined_message(cc, last, gate_name, execution_time, dato_func, checked_by_text):
     info = dato_func(cc[:6])
-
     return f"""<b>#{gate_name} [{CHANNEL_ICON}] 🌩
 - - - - - - - - - - - - - - - - - - - - - -
 [{CHANNEL_ICON}] 𝐂𝐚𝐫𝐝: <code>{cc}</code>
@@ -132,7 +128,7 @@ def declined_message(cc, last, gate_name, execution_time, dato_func):
 
 
 # ================= HIT DETECTED =================
-def hit_detected_message(name, status_type, execution_time, gateway):
+def hit_detected_message(name, status_type, execution_time, gateway, checked_by_text):
     status_map = {
         "approved": "Approved ✅",
         "charged": "Charged ⚡",
@@ -148,6 +144,7 @@ def hit_detected_message(name, status_type, execution_time, gateway):
 [{CHANNEL_ICON}] 𝐒𝐭𝐚𝐭𝐮𝐬: {status_text}
 [{CHANNEL_ICON}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
 [{CHANNEL_ICON}] 𝐆𝐚𝐭𝐞𝐰𝐚𝐲: {gateway}
+[{OWNER_ICO}] 𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐛𝐲: {checked_by_text}
 - - - - - - - - - - - - - - - - - - - -
 [{CHANNEL_ICON}] 𝐓𝐨𝐨𝐥 𝐁𝐲: {TOOL_BY}
 </b>"""
