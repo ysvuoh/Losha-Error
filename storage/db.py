@@ -18,8 +18,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY,
             username TEXT,
-            first_name TEXT,
-            vip_start TEXT  -- تخزين وقت تفعيل VIP بصيغة ISO
+            first_name TEXT
         )
         """)
 

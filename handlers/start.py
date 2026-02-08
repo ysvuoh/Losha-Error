@@ -9,19 +9,19 @@ from storage.repositories.bans import is_banned
 from storage.db import get_connection
 
 from security.channel_guard import is_channel_subscribed, send_channel_prompt
-from config.settings import OWNER_HTML
+from config.settings import OWNER_HTML, OWNER_NAME, TOOL_BY 
 
 
 VIDEO_LINKS = [
     "https://t.me/L_O_S_H_A_1/26",
     "https://t.me/L_O_S_H_A_1/27",
     "https://t.me/L_O_S_H_A_1/28",
-    "https://t.me/L_O_S_H_A_1/31",
     "https://t.me/L_O_S_H_A_1/34",
     "https://t.me/L_O_S_H_A_1/35",
     "https://t.me/L_O_S_H_A_1/41",
     "https://t.me/L_O_S_H_A_1/67",
     "https://t.me/L_O_S_H_A_1/148",
+    "https://t.me/L_O_S_H_A_1/398",
 ]
 
 
@@ -67,10 +67,7 @@ def register_start(bot):
             )
             return
 
-        # 🔔 Channel subscription
-        if not is_channel_subscribed(bot, user_id):
-            send_channel_prompt(bot, message.chat.id, name)
-            return
+
 
         # 👤 Create / Update user (دايمًا)
         create_or_update_user(
@@ -89,7 +86,7 @@ def register_start(bot):
         kb = types.InlineKeyboardMarkup()
         kb.add(
             types.InlineKeyboardButton(
-                f"ϟ Tool By ⇾ {OWNER_HTML} ϟ",
+                f"ϟ Tool By ⇾ {OWNER_NAME} ϟ",
                 url="https://t.me/I_EOR"
             )
         )
@@ -102,7 +99,7 @@ def register_start(bot):
 ⏱ Remaining  : {vip_remaining} min
 
 - Send your combo to check
-ϟ Tool By ⇾ {OWNER_HTML} ϟ
+ϟ Tool By ⇾ {TOOL_BY} ϟ
 """
         elif balance == -1:
             caption = f"""✨ Welcome {name} ✨
@@ -110,7 +107,7 @@ def register_start(bot):
 💳 Credits : Unlimited
 
 - Send your combo to check
-ϟ Tool By ⇾ {OWNER_HTML} ϟ
+ϟ Tool By ⇾ {TOOL_BY} ϟ
 """
         elif balance > 0:
             caption = f"""✨ Welcome {name} ✨
@@ -119,15 +116,15 @@ def register_start(bot):
 
 - Send your combo to check
 - Use /buy to get more credits
-ϟ Tool By ⇾ {OWNER_HTML} ϟ
+ϟ Tool By ⇾ {TOOL_BY} ϟ
 """
         else:
             caption = f"""✨ Welcome {name} ✨
 
 ❌ No Credits Available
 
-/cmds | /buy
-ϟ Tool By ⇾ {OWNER_HTML} ϟ
+Use /buy to get credits
+ϟ Tool By ⇾ {TOOL_BY} ϟ
 """
 
         # 🎬 Send video

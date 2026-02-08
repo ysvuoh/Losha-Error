@@ -1,5 +1,5 @@
 import requests
-from config.settings import CHANNEL_ICON, TOOL_BY
+from config.settings import CHANNEL_ICON, TOOL_BY, OWNER_ICON
 
 # ================= USER NAME =================
 def get_user_name(user):
@@ -9,7 +9,14 @@ def get_user_name(user):
         return user.first_name
     else:
         return str(user.id)
-
+        
+def format_checked_by(user):
+    if user.username:
+        return f"@{user.username}"
+    elif user.first_name:
+        return user.first_name
+    else:
+        return f"User ID: {user.id}"
 
 # ================= BIN DATA =================
 def dato(zh):
@@ -47,15 +54,17 @@ def approved_message(cc, last, gate_name, execution_time, dato_func):
     return f"""<b>#{gate_name} [{CHANNEL_ICON}] 🌩
 - - - - - - - - - - - - - - - - - - - - - -
 [{CHANNEL_ICON}] 𝐂𝐚𝐫𝐝: <code>{cc}</code>
+[{CHANNEL_ICON}] 𝐒𝐭𝐚𝐭𝐮𝐬: Approved ✅
 [{CHANNEL_ICON}] 𝐑𝐞𝐬𝐩𝐨𝐧𝐬𝐞: {last}
-[{CHANNEL_ICON}] 𝐆𝐚𝐭𝐞𝐰𝐚𝐲: {gate_name}
-[{CHANNEL_ICON}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
 - - - - - - - - - - - - - - - - - - - - - -
-[{CHANNEL_ICON}] 𝐈𝐧𝐟𝐨: {info['brand']} - {info['type']} - {info['level']}
+[{CHANNEL_ICON}] 𝐁𝐢𝐧: {info['brand']} - {info['type']} - {info['level']}
 [{CHANNEL_ICON}] 𝐁𝐚𝐧𝐤: {info['bank']}
 [{CHANNEL_ICON}] 𝐂𝐨𝐮𝐧𝐭𝐫𝐲: {info['country']} {info['flag']}
 - - - - - - - - - - - - - - - - - - - - - -
-[⌤] 𝐓𝐨𝐨𝐥 𝐁𝐲: {TOOL_BY}
+[{CHANNEL_ICO}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
+[{CHANNEL_ICO}] 𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐛𝐲: {checked_by_text}
+- - - - - - - - - - - - - - - - - - - - - -
+[{OWNER_ICON}] 𝐃𝐞𝐯 𝐛𝐲: {TOOL_BY}
 </b>"""
 
 
@@ -66,15 +75,17 @@ def charged_message(cc, last, gate_name, execution_time, dato_func):
     return f"""<b>#{gate_name} [{CHANNEL_ICON}] 🌩
 - - - - - - - - - - - - - - - - - - - - - -
 [{CHANNEL_ICON}] 𝐂𝐚𝐫𝐝: <code>{cc}</code>
+[{CHANNEL_ICON}] 𝐒𝐭𝐚𝐭𝐮𝐬: Charged 🔥
 [{CHANNEL_ICON}] 𝐑𝐞𝐬𝐩𝐨𝐧𝐬𝐞: {last}
-[{CHANNEL_ICON}] 𝐆𝐚𝐭𝐞𝐰𝐚𝐲: {gate_name}
-[{CHANNEL_ICON}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
 - - - - - - - - - - - - - - - - - - - - - -
-[{CHANNEL_ICON}] 𝐈𝐧𝐟𝐨: {info['brand']} - {info['type']} - {info['level']}
+[{CHANNEL_ICON}] 𝐁𝐢𝐧: {info['brand']} - {info['type']} - {info['level']}
 [{CHANNEL_ICON}] 𝐁𝐚𝐧𝐤: {info['bank']}
 [{CHANNEL_ICON}] 𝐂𝐨𝐮𝐧𝐭𝐫𝐲: {info['country']} {info['flag']}
 - - - - - - - - - - - - - - - - - - - - - -
-[⌤] 𝐓𝐨𝐨𝐥 𝐁𝐲: {TOOL_BY}
+[{CHANNEL_ICO}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
+[{CHANNEL_ICO}] 𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐛𝐲: {checked_by_text}
+- - - - - - - - - - - - - - - - - - - - - -
+[{OWNER_ICON}] 𝐃𝐞𝐯 𝐛𝐲: {TOOL_BY}
 </b>"""
 
 
@@ -85,15 +96,17 @@ def insufficient_funds_message(cc, last, gate_name, execution_time, dato_func):
     return f"""<b>#{gate_name} [{CHANNEL_ICON}] 🌩
 - - - - - - - - - - - - - - - - - - - - - -
 [{CHANNEL_ICON}] 𝐂𝐚𝐫𝐝: <code>{cc}</code>
+[{CHANNEL_ICON}] 𝐒𝐭𝐚𝐭𝐮𝐬: Insufficient Funds ✅
 [{CHANNEL_ICON}] 𝐑𝐞𝐬𝐩𝐨𝐧𝐬𝐞: {last}
-[{CHANNEL_ICON}] 𝐆𝐚𝐭𝐞𝐰𝐚𝐲: {gate_name}
-[{CHANNEL_ICON}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
 - - - - - - - - - - - - - - - - - - - - - -
-[{CHANNEL_ICON}] 𝐈𝐧𝐟𝐨: {info['brand']} - {info['type']} - {info['level']}
+[{CHANNEL_ICON}] 𝐁𝐢𝐧: {info['brand']} - {info['type']} - {info['level']}
 [{CHANNEL_ICON}] 𝐁𝐚𝐧𝐤: {info['bank']}
 [{CHANNEL_ICON}] 𝐂𝐨𝐮𝐧𝐭𝐫𝐲: {info['country']} {info['flag']}
 - - - - - - - - - - - - - - - - - - - - - -
-[⌤] 𝐓𝐨𝐨𝐥 𝐁𝐲: {TOOL_BY}
+[{CHANNEL_ICO}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
+[{CHANNEL_ICO}] 𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐛𝐲: {checked_by_text}
+- - - - - - - - - - - - - - - - - - - - - -
+[{OWNER_ICON}] 𝐃𝐞𝐯 𝐛𝐲: {TOOL_BY}
 </b>"""
 
 
@@ -104,20 +117,22 @@ def declined_message(cc, last, gate_name, execution_time, dato_func):
     return f"""<b>#{gate_name} [{CHANNEL_ICON}] 🌩
 - - - - - - - - - - - - - - - - - - - - - -
 [{CHANNEL_ICON}] 𝐂𝐚𝐫𝐝: <code>{cc}</code>
+[{CHANNEL_ICON}] 𝐒𝐭𝐚𝐭𝐮𝐬: Declined ❌️
 [{CHANNEL_ICON}] 𝐑𝐞𝐬𝐩𝐨𝐧𝐬𝐞: {last}
-[{CHANNEL_ICON}] 𝐆𝐚𝐭𝐞𝐰𝐚𝐲: {gate_name}
-[{CHANNEL_ICON}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
 - - - - - - - - - - - - - - - - - - - - - -
-[{CHANNEL_ICON}] 𝐈𝐧𝐟𝐨: {info['brand']} - {info['type']} - {info['level']}
+[{CHANNEL_ICON}] 𝐁𝐢𝐧: {info['brand']} - {info['type']} - {info['level']}
 [{CHANNEL_ICON}] 𝐁𝐚𝐧𝐤: {info['bank']}
 [{CHANNEL_ICON}] 𝐂𝐨𝐮𝐧𝐭𝐫𝐲: {info['country']} {info['flag']}
 - - - - - - - - - - - - - - - - - - - - - -
-[⌤] 𝐓𝐨𝐨𝐥 𝐁𝐲: {TOOL_BY}
+[{CHANNEL_ICO}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
+[{CHANNEL_ICO}] 𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐛𝐲: {checked_by_text}
+- - - - - - - - - - - - - - - - - - - - - -
+[{OWNER_ICON}] 𝐃𝐞𝐯 𝐛𝐲: {TOOL_BY}
 </b>"""
 
 
 # ================= HIT DETECTED =================
-def hit_detected_message(hit_number, name, status_type, execution_time, gateway):
+def hit_detected_message(name, status_type, execution_time, gateway):
     status_map = {
         "approved": "Approved ✅",
         "charged": "Charged ⚡",
@@ -127,7 +142,7 @@ def hit_detected_message(hit_number, name, status_type, execution_time, gateway)
     status_text = status_map.get(status_type.lower(), status_type)
 
     return f"""<b>
-[{CHANNEL_ICON}] 𝗛𝗶𝘁 𝗗𝗲𝘁𝗲𝗰𝘁𝗲𝗱 #{hit_number} 🔥
+[{CHANNEL_ICON}] 𝗛𝗶𝘁 𝗗𝗲𝘁𝗲𝗰𝘁𝗲𝗱 🔥
 - - - - - - - - - - - - - - - - - - - -
 [{CHANNEL_ICON}] 𝐍𝐚𝐦𝐞: {name}
 [{CHANNEL_ICON}] 𝐒𝐭𝐚𝐭𝐮𝐬: {status_text}

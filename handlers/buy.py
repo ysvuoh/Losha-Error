@@ -3,7 +3,7 @@ from security.channel_guard import is_channel_subscribed, send_channel_prompt
 from config.settings import ADMINS
 from storage.db import get_connection
 from storage.repositories.credits import ensure_row
-
+from storage.repositories.bans import is_banned
 
 # ======================
 # HELPERS
@@ -12,7 +12,6 @@ from storage.repositories.credits import ensure_row
 def get_packages():
     conn = get_connection()
     cur = conn.cursor()
-    uid = message.from_user.id
     cur.execute("""
         SELECT id, credits, stars, bonus
         FROM buy_packages
@@ -48,6 +47,11 @@ def register_buy(bot):
     # ======================
     @bot.message_handler(commands=["buy"])
     def buy(message):
+        uid = message.from_user.id
+        user_id = message.from_user.id
+        user_name = message.from_user.first_name
+        name = message.from_user.first_name or "Hidden"
+        username = message.from_user.username
         if message.chat.type != "private":
             bot.reply_to(message, "❌ Use /buy in private chat")
             return

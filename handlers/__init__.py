@@ -1,7 +1,7 @@
 import logging
 
 from .start import register_start
-from .prices import register_prices
+from .help import register_help_command
 from .buy import register_buy
 from .combo import register_combo
 from .redeem import register_redeem
@@ -16,7 +16,7 @@ def register_all(bot):
 
     handlers = [
         ("start", register_start),
-        ("prices", register_prices),
+        ("help", register_help_command),
         ("buy", register_buy),
         ("combo", register_combo),
         ("redeem", register_redeem),

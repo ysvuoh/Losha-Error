@@ -116,6 +116,8 @@ def register_single_commands(bot):
     def run_single_check(message, gate_key, card):
         user_id = message.from_user.id
         user_name = get_user_name(message.from_user)
+        name = message.from_user.first_name or "Hidden"
+        username = message.from_user.username
 
         # 🚫 BANNED
         if is_banned(user_id):
@@ -126,10 +128,7 @@ def register_single_commands(bot):
             )
             return
             
-        # 🔔 Channel subscription
-        if not is_channel_subscribed(bot, user_id):
-            send_channel_prompt(bot, message.chat.id, name)
-            return
+
         gate_name, gate_func, gate_type, db_key = SINGLE_GATES[gate_key]
 
         # ⛔ GATE DISABLED
@@ -168,9 +167,15 @@ def register_single_commands(bot):
         exec_time = round(time.time() - start, 2)
         result_l = result.lower()
 
-        # 💳 DEDUCT
+
         if credits != -1:
-            deduct_one_atomic(user_id)
+
+            from storage.repositories.credits import deduct_credits
+            from storage.repositories.gates import get_cost
+
+            cost_to_deduct = get_cost(db_key)
+            deduct_credits(user_id, cost_to_deduct)
+
 
         # ===== AUTH =====
         if gate_type == "AUTH":
@@ -182,11 +187,10 @@ def register_single_commands(bot):
                     safe_pin(bot, message.chat.id, msg_id)
 
                 hit_text = hit_detected_message(
-                    hit_number=get_next_hit_number(),
-                    name=user_name,
-                    status_type="approved",
-                    execution_time=exec_time,
-                    gateway=gate_name
+                    user_name,
+                    "approved",
+                    exec_time,
+                    gate_name
                 )
                 send_hit(bot, HIT_CHAT, hit_text)
             else:
@@ -203,11 +207,10 @@ def register_single_commands(bot):
                     safe_pin(bot, message.chat.id, msg_id)
 
                 hit_text = hit_detected_message(
-                    hit_number=get_next_hit_number(),
-                    name=user_name,
-                    status_type="charged",
-                    execution_time=exec_time,
-                    gateway=gate_name
+                    user_name,
+                    "charged",
+                    exec_time,
+                    gate_name
                 )
                 send_hit(bot, HIT_CHAT, hit_text)
 
@@ -219,11 +222,10 @@ def register_single_commands(bot):
                     safe_pin(bot, message.chat.id, msg_id)
 
                 hit_text = hit_detected_message(
-                    hit_number=get_next_hit_number(),
-                    name=user_name,
-                    status_type="funds",
-                    execution_time=exec_time,
-                    gateway=gate_name
+                    user_name,
+                    "funds",
+                    exec_time,
+                    gate_name
                 )
                 send_hit(bot, HIT_CHAT, hit_text)
 

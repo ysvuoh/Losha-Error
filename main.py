@@ -4,7 +4,6 @@ import time
 import signal
 import logging
 from dotenv import load_dotenv
-
 from core.bot import create_bot
 from handlers import register_all
 from storage.db import init_db
@@ -42,9 +41,7 @@ def setup_logging():
     logging.basicConfig(
         level=level,
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-        ],
+        handlers=[logging.StreamHandler(sys.stdout)],
     )
 
 
@@ -54,7 +51,6 @@ def setup_logging():
 
 logger = logging.getLogger("MAIN")
 bot_instance = None
-RUNNING = True
 
 
 # =========================
@@ -62,9 +58,7 @@ RUNNING = True
 # =========================
 
 def shutdown_handler(signum, frame):
-    global RUNNING
     logger.warning(f"Received signal {signum}. Shutting down gracefully...")
-    RUNNING = False
 
     if bot_instance:
         try:
@@ -122,7 +116,7 @@ def startup():
 
 
 # =========================
-# MAIN LOOP WITH RETRY
+# MAIN
 # =========================
 
 def main():
@@ -135,15 +129,16 @@ def main():
 
     logger.info("Bot is running...")
 
-    while RUNNING:
-        try:
-            bot_instance.infinity_polling(skip_pending=True)
-        except KeyboardInterrupt:
-            logger.warning("Bot stopped manually")
-            break
-        except Exception:
-            logger.exception("Polling crashed. Restarting in 5 seconds...")
-            time.sleep(5)
+    # IMPORTANT: ensure no webhook conflict
+    bot_instance.remove_webhook()
+
+    # SINGLE polling instance (NO LOOP)
+    bot_instance.infinity_polling(
+        skip_pending=True,
+        none_stop=True,
+        timeout=60,
+        long_polling_timeout=60
+    )
 
 
 # =========================
@@ -153,6 +148,9 @@ def main():
 if __name__ == "__main__":
     try:
         main()
+    except KeyboardInterrupt:
+        logger.warning("Bot stopped manually")
+        sys.exit(0)
     except Exception:
         logger.exception("Fatal startup error")
         sys.exit(1)

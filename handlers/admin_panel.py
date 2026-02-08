@@ -1,14 +1,15 @@
 from telebot import types  
-  
+from datetime import datetime, timedelta
+
 from utils.admin_guard import is_admin  
 from storage.db import get_connection  
 from storage.repositories.bans import ban_user, unban_user, list_bans  
 from storage.repositories.credits import get_credits, ensure_row  
 from storage.repositories.codes import create_code    
 from storage.repositories import gates  
-  
+
 ADMIN_STATES = {}  
-  
+
 # ================= GATES =================  
 GATES = {  
     "stripe_auth": "Stripe Auth",  
@@ -17,7 +18,7 @@ GATES = {
     "stripe_charge": "Stripe Charge",  
     "paypal_donation": "Paypal Donation",  
 }  
-  
+
 # ================= MAIN PANEL =================  
 def render_main_panel(bot, chat_id, message_id=None, admin_name="Boss"):
     kb = types.InlineKeyboardMarkup(row_width=1)
@@ -74,6 +75,7 @@ def render_credits_panel(bot, chat_id, message_id):
         types.InlineKeyboardButton("⬅ Back", callback_data="ap:back"),  
     )  
     bot.edit_message_text("💰 Credits Control", chat_id, message_id, reply_markup=kb)  
+
 # ================= BUY PANEL =================    
 def render_buy_panel(bot, chat_id, message_id):
     kb = types.InlineKeyboardMarkup(row_width=1)
@@ -89,6 +91,7 @@ def render_buy_panel(bot, chat_id, message_id):
         message_id,
         reply_markup=kb
     )  
+
 # ================= GATE PANEL =================  
 def render_gate_panel(bot, chat_id, gate_key, message_id):  
     status = "ON ✅" if gates.is_gate_enabled(gate_key) else "OFF ❌"  
@@ -120,14 +123,24 @@ def render_gate_panel(bot, chat_id, gate_key, message_id):
 # ================= REGISTER =================  
 def register_admin_panel(bot):
 
+    # ===== SECURITY CHECK DECORATOR =====
+    def admin_only(func):
+        def wrapper(call_or_msg):
+            user_id = call_or_msg.from_user.id if hasattr(call_or_msg, 'from_user') else call_or_msg.chat.id
+            if not is_admin(user_id):
+                if isinstance(call_or_msg, types.CallbackQuery):
+                    bot.answer_callback_query(call_or_msg.id, "بطل بعبصه يا حبيبي فوق انت مش ادمن 🤨", show_alert=True)
+                else:
+                    bot.reply_to(call_or_msg, "هو انت ادمن يا عبيط علشان تستخدم الامر ده 😂")
+                return
+            return func(call_or_msg)
+        return wrapper
+
     # ===== OPEN =====
-    @bot.message_handler(commands=["admin_panel"])
+    @bot.message_handler(commands=["admin"])
+    @admin_only
     def admin_panel(message):
-        if not is_admin(message.from_user.id):
-            return
-    
         admin_name = message.from_user.first_name or "Boss"
-    
         render_main_panel(
             bot,
             message.chat.id,
@@ -136,11 +149,10 @@ def register_admin_panel(bot):
   
     # ===== BACK =====  
     @bot.callback_query_handler(func=lambda c: c.data == "ap:back")
+    @admin_only
     def back(c):
         ADMIN_STATES.pop(c.from_user.id, None)
-    
         admin_name = c.from_user.first_name or "Boss"
-    
         render_main_panel(
             bot,
             c.message.chat.id,
@@ -150,15 +162,18 @@ def register_admin_panel(bot):
   
     # ===== USERS =====  
     @bot.callback_query_handler(func=lambda c: c.data == "ap:users")  
+    @admin_only
     def users(c):  
         render_users_panel(bot, c.message.chat.id, c.message.message_id)  
   
     @bot.callback_query_handler(func=lambda c: c.data in ("user:ban", "user:unban"))  
+    @admin_only
     def user_action(c):  
         ADMIN_STATES[c.from_user.id] = {"action": c.data}  
         bot.send_message(c.message.chat.id, "Send user ID:")  
   
     @bot.callback_query_handler(func=lambda c: c.data == "user:list")  
+    @admin_only
     def user_list(c):  
         rows = list_bans()  
         if not rows:  
@@ -170,84 +185,55 @@ def register_admin_panel(bot):
         bot.send_message(c.message.chat.id, txt)  
 
     # ===== VIP USERS =====  
-    @bot.callback_query_handler(func=lambda c: c.data == "credits:vip")
-    def vip_users(c):
-        conn = get_connection()
-        cur = conn.cursor()
-    
+    @bot.callback_query_handler(func=lambda c: c.data == "credits:vip")  
+    @admin_only
+    def vip_users(c):  
+        conn = get_connection()  
+        cur = conn.cursor()  
         cur.execute("""
             SELECT 
                 u.first_name,
                 u.username,
                 c.user_id,
-                c.balance,
-                v.expires_at
+                c.balance
             FROM credits c
             LEFT JOIN users u ON u.id = c.user_id
-            LEFT JOIN vip_status v ON v.user_id = c.user_id
-            WHERE v.expires_at IS NOT NULL
+            WHERE c.balance > 0 OR c.balance = -1
         """)
         rows = cur.fetchall()
         conn.close()
-    
-        from datetime import datetime
-        now = datetime.utcnow()
-    
+        
         if not rows:
-            bot.send_message(c.message.chat.id, "No VIP users.")
+            bot.send_message(c.message.chat.id, "No Credited users.")
             return
     
-        for name, username, uid, bal, expires_at in rows:
-            is_vip = False
-            vip_remaining = 0
-    
-            if expires_at:
-                try:
-                    exp = datetime.fromisoformat(expires_at)
-                    if exp > now:
-                        is_vip = True
-                        vip_remaining = int((exp - now).total_seconds() / 60)
-                except:
-                    pass
-    
-            if not is_vip:
-                continue  # ❗ تجاهل VIP المنتهي
-    
-            # 🔧 إصلاح الاسم واليوزر
-            if not name or not username:
-                try:
-                    tg = bot.get_chat(uid)
-                    name = tg.first_name or name
-                    username = tg.username or username
-                except:
-                    pass
-    
+        for name, username, uid, bal in rows:
             bot.send_message(
                 c.message.chat.id,
                 f"""
 𝐀𝐜𝐜𝐨𝐮𝐧𝐭 𝐈𝐧𝐟𝐨
-
-𝐍𝐚𝐦𝐞 : {name or 'Hidden'}
-𝐔𝐬𝐞𝐫𝐧𝐚𝐦𝐞 : @{username if username else 'Hidden'}
+    
+𝐍𝐚𝐦𝐞 : {name or 'NoName'}
+𝐔𝐬𝐞𝐫𝐧𝐚𝐦𝐞 : @{username or 'NoUsername'}
 𝐔𝐬𝐞𝐫 𝐈𝐃 : {uid}
 𝐂𝐫𝐞𝐝𝐢𝐭𝐬 : {'Unlimited' if bal == -1 else bal}
-💎 VIP : Yes
-⏱ VIP Remaining : {vip_remaining} min
-📅 VIP Expiry : {expires_at}
-"""
-           )
+    """
+            )
       
     # ===== CREDITS =====  
     @bot.callback_query_handler(func=lambda c: c.data == "ap:credits")  
+    @admin_only
     def credits(c):  
         render_credits_panel(bot, c.message.chat.id, c.message.message_id)  
 
     @bot.callback_query_handler(func=lambda c: c.data == "credits:unlimited")
+    @admin_only
     def credits_unlimited(c):
         ADMIN_STATES[c.from_user.id] = {"action": "credits:unlimited"}
         bot.send_message(c.message.chat.id, "Send user ID:")
         
     @bot.callback_query_handler(func=lambda c: c.data == "credits:check")
+    @admin_only
     def credits_check(c):
         ADMIN_STATES[c.from_user.id] = {"action": "credits:check"}
         bot.send_message(c.message.chat.id, "Send user ID:")
@@ -255,6 +241,7 @@ def register_admin_panel(bot):
     @bot.callback_query_handler(
         func=lambda c: c.data in ("credits:add", "credits:take", "credits:code")
     )
+    @admin_only
     def credits_action(c):
         ADMIN_STATES[c.from_user.id] = {"action": c.data}
         if c.data != "credits:code":
@@ -262,35 +249,14 @@ def register_admin_panel(bot):
         else:
             bot.send_message(c.message.chat.id, "Send number of codes:")
   
-    @bot.callback_query_handler(func=lambda c: c.data.startswith("code:type:"))
-    def code_choose_type(c):
-        state = ADMIN_STATES.get(c.from_user.id)
-        if not state:
-            return
-    
-        code_type = c.data.split(":")[2]
-        state["code_type"] = code_type
-    
-        if code_type == "credits":
-            state["action"] = "code:credits"
-            bot.send_message(c.message.chat.id, "Send credits per code:")
-        else:
-            state["action"] = "code:vip_duration"
-            bot.send_message(c.message.chat.id, "Send VIP duration per code (hours):")
-        
     # ===== BUY =====  
     @bot.callback_query_handler(func=lambda c: c.data == "ap:buy")
+    @admin_only
     def buy_panel(c):
         render_buy_panel(bot, c.message.chat.id, c.message.message_id)
-# ================= BUY PACKAGES =================
-
-    @bot.callback_query_handler(func=lambda c: c.data == "buy:add")
-    def buy_add(c):
-        ADMIN_STATES[c.from_user.id] = {"action": "buy:add_credits"}
-        bot.send_message(c.message.chat.id, "💰 Send credits amount:")
-
 
     @bot.callback_query_handler(func=lambda c: c.data == "buy:list")
+    @admin_only
     def buy_list(c):
         conn = get_connection()
         cur = conn.cursor()
@@ -326,25 +292,15 @@ def register_admin_panel(bot):
                 reply_markup=kb
             )
 
-
     @bot.callback_query_handler(func=lambda c: c.data.startswith("buy:toggle:"))
+    @admin_only
     def buy_toggle(c):
         pid = int(c.data.split(":")[2])
     
         conn = get_connection()
         cur = conn.cursor()
-    
-        # Toggle active
-        cur.execute(
-            "UPDATE buy_packages SET active = 1 - active WHERE id = ?",
-            (pid,)
-        )
-    
-        # Fetch updated data
-        cur.execute(
-            "SELECT credits, stars, bonus, active FROM buy_packages WHERE id = ?",
-            (pid,)
-        )
+        cur.execute("UPDATE buy_packages SET active = 1 - active WHERE id = ?", (pid,))
+        cur.execute("SELECT credits, stars, bonus, active FROM buy_packages WHERE id = ?", (pid,))
         row = cur.fetchone()
         conn.commit()
         conn.close()
@@ -356,7 +312,6 @@ def register_admin_panel(bot):
         credits, stars, bonus, active = row
         status = "✅ Active" if active else "❌ Disabled"
     
-        # Rebuild keyboard
         kb = types.InlineKeyboardMarkup(row_width=2)
         kb.add(
             types.InlineKeyboardButton("✏ Edit", callback_data=f"buy:edit:{pid}"),
@@ -366,7 +321,6 @@ def register_admin_panel(bot):
             types.InlineKeyboardButton("🗑 Delete", callback_data=f"buy:delete:{pid}")
         )
     
-        # Edit message
         bot.edit_message_text(
             f"""📦 Package #{pid}
     
@@ -379,39 +333,30 @@ def register_admin_panel(bot):
             c.message.message_id,
             reply_markup=kb
         )
-    
-        # Stop loading + feedback
-        bot.answer_callback_query(
-            c.id,
-            "✅ Package enabled" if active else "⛔ Package disabled"
-        )
-
+        bot.answer_callback_query(c.id, "✅ Package enabled" if active else "⛔ Package disabled")
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("buy:delete:"))
+    @admin_only
     def buy_delete(c):
         pid = int(c.data.split(":")[2])
-    
         conn = get_connection()
         cur = conn.cursor()
         cur.execute("DELETE FROM buy_packages WHERE id = ?", (pid,))
         conn.commit()
         conn.close()
-    
         bot.delete_message(c.message.chat.id, c.message.message_id)
         bot.answer_callback_query(c.id, "🗑 Package deleted")
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("buy:edit:"))
+    @admin_only
     def buy_edit(c):
         pid = int(c.data.split(":")[2])
-    
-        ADMIN_STATES[c.from_user.id] = {
-            "action": "buy:edit_credits",
-            "pid": pid
-        }
-    
+        ADMIN_STATES[c.from_user.id] = {"action": "buy:edit_credits", "pid": pid}
         bot.send_message(c.message.chat.id, "✏ Send new credits value:")
+
     # ===== GATES =====  
     @bot.callback_query_handler(func=lambda c: c.data == "ap:gates")  
+    @admin_only
     def gates_menu(c):  
         kb = types.InlineKeyboardMarkup(row_width=1)  
         for k, v in GATES.items():  
@@ -420,364 +365,247 @@ def register_admin_panel(bot):
         bot.edit_message_text("🚪 Gate Control", c.message.chat.id, c.message.message_id, reply_markup=kb)  
   
     @bot.callback_query_handler(func=lambda c: c.data.startswith("gate:open:"))  
+    @admin_only
     def gate_open(c):  
         render_gate_panel(bot, c.message.chat.id, c.data.split(":")[2], c.message.message_id)  
   
     @bot.callback_query_handler(func=lambda c: c.data.startswith("gate:toggle:"))  
+    @admin_only
     def gate_toggle(c):  
         gate = c.data.split(":")[2]  
         gates.set_enabled(gate, not gates.is_gate_enabled(gate))  
         render_gate_panel(bot, c.message.chat.id, gate, c.message.message_id)  
   
     @bot.callback_query_handler(func=lambda c: c.data.startswith("gate:limit:"))  
+    @admin_only
     def gate_limit(c):  
-        ADMIN_STATES[c.from_user.id] = {"action": "gate_limit", "gate": c.data.split(":")[2]}  
+        ADMIN_STATES[c.from_user.id] = {"action": "gate:limit", "gate": c.data.split(":")[2]}  
         bot.send_message(c.message.chat.id, "Send new max cards limit:")  
   
     @bot.callback_query_handler(func=lambda c: c.data.startswith("gate:cost:"))  
+    @admin_only
     def gate_cost(c):  
-        ADMIN_STATES[c.from_user.id] = {"action": "gate_cost", "gate": c.data.split(":")[2]}  
+        ADMIN_STATES[c.from_user.id] = {"action": "gate:cost", "gate": c.data.split(":")[2]}  
         bot.send_message(c.message.chat.id, "Send new cost per card:")  
-  
   
     # ===== BROADCAST =====  
     @bot.callback_query_handler(func=lambda c: c.data == "ap:broadcast")  
+    @admin_only
     def broadcast(c):  
         ADMIN_STATES[c.from_user.id] = {"action": "broadcast"}  
         bot.send_message(c.message.chat.id, "📢 Send broadcast message:")  
          
     # ===== INPUT HANDLER =====  
     @bot.message_handler(func=lambda m: m.from_user.id in ADMIN_STATES)
+    @admin_only
     def admin_input(m):
         state = ADMIN_STATES.get(m.from_user.id)
-        if not state:
-            return
-    
+        if not state: return
         action = state["action"]
     
         try:
+            # ===== BROADCAST EXECUTION =====
+            if action == "broadcast":
+                ADMIN_STATES.pop(m.from_user.id, None)
+                conn = get_connection()
+                cur = conn.cursor()
+                cur.execute("SELECT id FROM users")
+                users_list = cur.fetchall()
+                conn.close()
+                
+                success, fail = 0, 0
+                status_msg = bot.send_message(m.chat.id, f"🚀 Starting broadcast to {len(users_list)} users...")
+                
+                for (uid,) in users_list:
+                    try:
+                        bot.copy_message(uid, m.chat.id, m.message_id)
+                        success += 1
+                    except:
+                        fail += 1
+                
+                bot.edit_message_text(
+                    f"""📢 <b>Broadcast Finished!</b>
+━━━━━━━━━━━━━━━
+✅ <b>Success:</b> {success}
+❌ <b>Failed:</b> {fail}
+👥 <b>Total:</b> {len(users_list)}
+━━━━━━━━━━━━━━━
+Done My Boss! 👑""",
+                    m.chat.id,
+                    status_msg.message_id,
+                    parse_mode="HTML"
+                )
+                return
+
             # ===== USER BAN =====  
-            if action == "user:ban":
+            elif action == "user:ban":
                 target_id = int(m.text)
-            
-                # تنفيذ الحظر
                 ban_user(target_id, reason="Admin decision")
-            
-                # جلب بيانات المستخدم
                 try:
                     user = bot.get_chat(target_id)
-                    name = user.first_name or "NoName"
-                    username = f"@{user.username}" if user.username else "NoUsername"
+                    name, username = user.first_name or "Unknown", f"@{user.username}" if user.username else "NoUsername"
                 except:
-                    name = "Unknown"
-                    username = "Unknown"
-            
-                from datetime import datetime
-                banned_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
-                bot.send_message(
-                    m.chat.id,
-                    f"""✅ User Banned Successfully
-            
-Name     : {name}
-Username : {username}
-User ID  : {target_id}
-Reason   : Admin decision
-Time     : {banned_at}
-            """
-                )
-            
-
+                    name, username = "Unknown", "Unknown"
+                
+                bot.send_message(m.chat.id, f"✅ User Banned\nName: {name}\nID: {target_id}")
                 ADMIN_STATES.pop(m.from_user.id, None)
                 return
   
             elif action == "user:unban":
                 target_id = int(m.text)
-            
-                # تنفيذ فك الحظر
                 unban_user(target_id)
-            
-                # جلب بيانات المستخدم
-                try:
-                    user = bot.get_chat(target_id)
-                    name = user.first_name or "NoName"
-                    username = f"@{user.username}" if user.username else "NoUsername"
-                except:
-                    name = "Unknown"
-                    username = "Unknown"
-            
-                from datetime import datetime
-                unbanned_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
-                bot.send_message(
-                    m.chat.id,
-                    f"""✅ User Unbanned Successfully
-            
-Name     : {name}
-Username : {username}
-User ID  : {target_id}
-Time     : {unbanned_at}
-            """
-                )
-            
-                render_users_panel(bot, m.chat.id, m.message_id)
+                bot.send_message(m.chat.id, f"✅ User Unbanned: {target_id}")
                 ADMIN_STATES.pop(m.from_user.id, None)
                 return
   
-            # ===== CREDITS ADD =====  
+            # ===== CREDITS =====  
             elif action == "credits:add":  
                 ensure_row(int(m.text))  
-                ADMIN_STATES[m.from_user.id] = {  
-                    "action": "credits:add_amount",  
-                    "target": int(m.text)  
-                }  
+                ADMIN_STATES[m.from_user.id] = {"action": "credits:add_amount", "target": int(m.text)}  
                 bot.send_message(m.chat.id, "Send amount:")  
                 return  
   
             elif action == "credits:add_amount":  
                 conn = get_connection()  
                 cur = conn.cursor()  
-                cur.execute(  
-                    "UPDATE credits SET balance = balance + ? WHERE user_id = ?",  
-                    (int(m.text), state["target"])  
-                )  
-                conn.commit()  
-                conn.close()  
+                cur.execute("UPDATE credits SET balance = balance + ? WHERE user_id = ?", (int(m.text), state["target"]))  
+                conn.commit(); conn.close()  
                 bot.send_message(m.chat.id, "✅ Credits added.")
                 ADMIN_STATES.pop(m.from_user.id, None)
                 return
   
-            # ===== CREDITS TAKE =====  
             elif action == "credits:take":  
                 ensure_row(int(m.text))  
-                ADMIN_STATES[m.from_user.id] = {  
-                    "action": "credits:take_amount",  
-                    "target": int(m.text)  
-                }  
+                ADMIN_STATES[m.from_user.id] = {"action": "credits:take_amount", "target": int(m.text)}  
                 bot.send_message(m.chat.id, "Send amount:")  
                 return  
   
             elif action == "credits:take_amount":  
                 conn = get_connection()  
                 cur = conn.cursor()  
-                cur.execute(  
-                    "UPDATE credits SET balance = balance - ? WHERE user_id = ?",  
-                    (int(m.text), state["target"])  
-                )  
-                conn.commit()  
-                conn.close()  
+                cur.execute("UPDATE credits SET balance = balance - ? WHERE user_id = ?", (int(m.text), state["target"]))  
+                conn.commit(); conn.close()  
                 bot.send_message(m.chat.id, "✅ Credits taken.")
                 ADMIN_STATES.pop(m.from_user.id, None)
                 return
-            # ==== CREDITS UNLIMITED ====  
+
             elif action == "credits:unlimited":
                 uid = int(m.text)
-                conn = get_connection()
-                cur = conn.cursor()
+                conn = get_connection(); cur = conn.cursor()
                 cur.execute("UPDATE credits SET balance = -1 WHERE user_id = ?", (uid,))
-                conn.commit()
-                conn.close()
+                conn.commit(); conn.close()
                 bot.send_message(m.chat.id, f"💳 User {uid} now has Unlimited credits")
                 ADMIN_STATES.pop(m.from_user.id, None)
                 return
-            
+
             elif action == "credits:check":
                 uid = int(m.text)
                 bal = get_credits(uid)
-            
-                bot.send_message(
-                    m.chat.id,
-                    f"💳 User Credits:\n\nUser ID: {uid}\nBalance: {'Unlimited' if bal == -1 else bal}"
-                )
+                bot.send_message(m.chat.id, f"💳 User {uid} Balance: {'Unlimited' if bal == -1 else bal}")
                 ADMIN_STATES.pop(m.from_user.id, None)
                 return
-                
-            elif action == "code:credits":
-                ADMIN_STATES[m.from_user.id] = {
-                    "action": "code:max_uses",
-                    "count": state["count"],
-                    "credits": int(m.text),
-                    "code_type": "credits"
-                }
-                bot.send_message(m.chat.id, "Send max uses per code:")
-                return
-                
-            elif action == "code:vip_duration":
-                ADMIN_STATES[m.from_user.id] = {
-                    "action": "code:max_uses",
-                    "count": state["count"],
-                    "vip_hours": int(m.text),
-                    "code_type": "vip"
-                }
-                bot.send_message(m.chat.id, "Send max uses per code:")
-                return
-            
-            # ===== CREATE CODE =====  
+
+            # ===== CODES =====
             elif action == "credits:code":
-                ADMIN_STATES[m.from_user.id] = {
-                    "action": "code:choose_type",
-                    "count": int(m.text)
-                }
-            
-                kb = types.InlineKeyboardMarkup(row_width=2)
-                kb.add(
-                    types.InlineKeyboardButton("💰 Credits", callback_data="code:type:credits"),
-                    types.InlineKeyboardButton("💎 VIP Time", callback_data="code:type:vip")
-                )
-                bot.send_message(m.chat.id, "Select code type:", reply_markup=kb)
+                ADMIN_STATES[m.from_user.id] = {"action": "code:credits", "count": int(m.text)}
+                bot.send_message(m.chat.id, "Send credits per code:")
                 return
-                
 
-                
-                # ===== ADMIN INPUT HANDLER =====
+            elif action == "code:credits":
+                ADMIN_STATES[m.from_user.id] = {"action": "code:max_uses", "count": state["count"], "credits": int(m.text)}
+                bot.send_message(m.chat.id, "Send max uses per code:")
+                return
 
-                    # إرسال الأكواد حسب النوع
             elif action == "code:max_uses":
                 max_uses = int(m.text)
                 count = state["count"]
+                credits_val = state["credits"]
                 codes = []
-            
-                # ===== CREDITS CODES =====
-                if state["code_type"] == "credits":
-                    for _ in range(count):
-                        code = create_code(
-                            credits=state["credits"],
-                            max_uses=max_uses
-                        )
-                        codes.append(code)
-            
+                for _ in range(count):
+                    c = create_code(credits=credits_val, max_uses=max_uses)
+                    codes.append(c)
+                
+                if count > 1:
                     txt = "\n".join(f"<code>{c}</code>" for c in codes)
-            
-                    bot.send_message(
-                        m.chat.id,
-                        f"""🎟 CODES CREATED
-            
-💰 Credits / Code : {state['credits']}
-👥 Max Uses       : {max_uses}
-📦 Total Codes    : {len(codes)}
-            
+                    msg = f"""⟡⟡⟡⟡⟡⟡⟡⟡⟡⟡
+💎 𝗩𝗜𝗣 𝗖𝗢𝗗𝗘𝗦 𝗚𝗘𝗡𝗘𝗥𝗔𝗧𝗘𝗗
+⟡⟡⟡⟡⟡⟡⟡⟡⟡⟡
+
+💰 Credits / Code -> {credits_val}
+👥 Max Uses -> {max_uses}
+📦 Total Codes -> {count}
+
+━━━━━━━━━━━━━━━━━━
 {txt}
-            """,
-                        parse_mode="HTML"
-                    )
-            
-                # ===== VIP CODES =====
+━━━━━━━━━━━━━━━━━━
+
+📌 You can use any code with /redeem"""
                 else:
-                    for _ in range(count):
-                        code = create_code(
-                            credits=0,
-                            max_uses=max_uses,
-                            vip_minutes=state["vip_hours"] * 60
-                        )
-                        codes.append(code)
-            
-                    txt = "\n".join(f"<code>{c}</code>" for c in codes)
-            
-                    bot.send_message(
-                        m.chat.id,
-                        f"""💎 VIP CODES CREATED
-            
-⏱ Duration        : {state['vip_hours']} hours
-👥 Max Uses       : {max_uses}
-📦 Total Codes    : {len(codes)}
-            
-{txt}
-            """,
-                        parse_mode="HTML"
-                    )
-            
+                    msg = f"""━━━━━━━━━━━━━━━━━━
+🎟 𝗖𝗢𝗗𝗘 𝗖𝗥𝗘𝗔𝗧𝗘𝗗
+━━━━━━━━━━━━━━━━━━
+
+🔑 Code -> <code>{codes[0]}</code>
+💰 Credits -> {credits_val}
+👥 Max Uses -> {max_uses}
+
+📌 You can use this code with /redeem
+━━━━━━━━━━━━━━━━━━"""
+                
+                bot.send_message(m.chat.id, msg, parse_mode="HTML")
                 ADMIN_STATES.pop(m.from_user.id, None)
                 return
 
-# ===== BUY PACKAGE ADD =====
+            # ===== BUY PACKAGES =====
             elif action == "buy:add_credits":
-                ADMIN_STATES[m.from_user.id] = {
-                    "action": "buy:add_stars",
-                    "credits": int(m.text)
-                }
+                ADMIN_STATES[m.from_user.id] = {"action": "buy:add_stars", "credits": int(m.text)}
                 bot.send_message(m.chat.id, "⭐ Send stars amount:")
                 return
 
-
             elif action == "buy:add_stars":
-                ADMIN_STATES[m.from_user.id] = {
-                    "action": "buy:add_bonus",
-                    "credits": state["credits"],
-                    "stars": int(m.text)
-                }
+                ADMIN_STATES[m.from_user.id] = {"action": "buy:add_bonus", "credits": state["credits"], "stars": int(m.text)}
                 bot.send_message(m.chat.id, "🎁 Send bonus amount:")
                 return
 
-
             elif action == "buy:add_bonus":
-                conn = get_connection()
-                cur = conn.cursor()
-                cur.execute(
-                    """
-                    INSERT INTO buy_packages (credits, stars, bonus, active)
-                    VALUES (?, ?, ?, 1)
-                    """,
-                    (
-                        state["credits"],
-                        state["stars"],
-                        int(m.text)
-                    )
-                )
-                conn.commit()
-                conn.close()
-            
-                ADMIN_STATES.pop(m.from_user.id, None)  # 👈 مهم جدًا قبل أي رسالة
-            
-                bot.send_message(m.chat.id, "✅ Package updated successfully")
+                conn = get_connection(); cur = conn.cursor()
+                cur.execute("INSERT INTO buy_packages (credits, stars, bonus, active) VALUES (?, ?, ?, 1)", (state["credits"], state["stars"], int(m.text)))
+                conn.commit(); conn.close()
+                bot.send_message(m.chat.id, "✅ Package added successfully")
                 ADMIN_STATES.pop(m.from_user.id, None)
                 return
+
             elif action == "buy:edit_credits":
-                ADMIN_STATES[m.from_user.id] = {
-                    "action": "buy:edit_stars",
-                    "pid": state["pid"],
-                    "credits": int(m.text)
-                }
+                ADMIN_STATES[m.from_user.id] = {"action": "buy:edit_stars", "pid": state["pid"], "credits": int(m.text)}
                 bot.send_message(m.chat.id, "⭐ Send new stars value:")
                 return
             
             elif action == "buy:edit_stars":
-                ADMIN_STATES[m.from_user.id] = {
-                    "action": "buy:edit_bonus",
-                    "pid": state["pid"],
-                    "credits": state["credits"],
-                    "stars": int(m.text)
-                }
-                bot.send_message(m.chat.id, "🎁 Send new bonus (0 allowed):")
+                ADMIN_STATES[m.from_user.id] = {"action": "buy:edit_bonus", "pid": state["pid"], "credits": state["credits"], "stars": int(m.text)}
+                bot.send_message(m.chat.id, "🎁 Send new bonus:")
                 return
             
             elif action == "buy:edit_bonus":
-                conn = get_connection()
-                cur = conn.cursor()
-                cur.execute("""
-                    UPDATE buy_packages
-                    SET credits = ?, stars = ?, bonus = ?
-                    WHERE id = ?
-                """, (
-                    state["credits"],
-                    state["stars"],
-                    int(m.text),
-                    state["pid"]
-                ))
-                conn.commit()
-                conn.close()
-
- 
+                conn = get_connection(); cur = conn.cursor()
+                cur.execute("UPDATE buy_packages SET credits = ?, stars = ?, bonus = ? WHERE id = ?", (state["credits"], state["stars"], int(m.text), state["pid"]))
+                conn.commit(); conn.close()
                 bot.send_message(m.chat.id, "✅ Package updated successfully")
                 ADMIN_STATES.pop(m.from_user.id, None)
                 return
 
+            # ===== GATES =====
+            elif action == "gate:limit":
+                gates.set_limit(state["gate"], int(m.text))
+                bot.send_message(m.chat.id, "✅ Limit updated")
+                ADMIN_STATES.pop(m.from_user.id, None)
+                return
 
+            elif action == "gate:cost":
+                gates.set_cost(state["gate"], int(m.text))
+                bot.send_message(m.chat.id, "✅ Cost updated")
+                ADMIN_STATES.pop(m.from_user.id, None)
+                return
 
-       
         except Exception as e:
-            bot.send_message(
-                m.chat.id,
-                f"❌ Error: {str(e)}"
-            )
-            print("ADMIN ERROR:", e)
+            bot.send_message(m.chat.id, f"❌ Error: {str(e)}")
             ADMIN_STATES.pop(m.from_user.id, None)

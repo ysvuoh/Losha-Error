@@ -33,3 +33,17 @@ def deduct_one_atomic(user_id: int) -> bool:
     conn.commit()
     conn.close()
     return success
+    
+    
+    
+def deduct_credits(user_id: int, amount: int):
+    """Deducts a specific amount of credits from a user's balance."""
+    conn = get_connection()
+    cur = conn.cursor()
+    # -1 means unlimited, so don't deduct
+    cur.execute(
+        "UPDATE credits SET balance = balance - ? WHERE user_id = ? AND balance != -1",
+        (amount, user_id)
+    )
+    conn.commit()
+    conn.close()
