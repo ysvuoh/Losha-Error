@@ -1,5 +1,5 @@
 import requests
-from config.settings import CHANNEL_ICON, TOOL_BY, OWNER_ICON
+from config.settings import CHANNEL_ICON, TOOL_BY, OWNER_ICON, OWNER_ICO
 
 # ================= USER NAME =================
 def get_user_name(user):
@@ -61,8 +61,8 @@ def approved_message(cc, last, gate_name, execution_time, dato_func):
 [{CHANNEL_ICON}] 𝐁𝐚𝐧𝐤: {info['bank']}
 [{CHANNEL_ICON}] 𝐂𝐨𝐮𝐧𝐭𝐫𝐲: {info['country']} {info['flag']}
 - - - - - - - - - - - - - - - - - - - - - -
-[{CHANNEL_ICO}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
-[{CHANNEL_ICO}] 𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐛𝐲: {checked_by_text}
+[{OWNER_ICO}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
+[{OWNER_ICO}] 𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐛𝐲: {checked_by_text}
 - - - - - - - - - - - - - - - - - - - - - -
 [{OWNER_ICON}] 𝐃𝐞𝐯 𝐛𝐲: {TOOL_BY}
 </b>"""
@@ -82,8 +82,8 @@ def charged_message(cc, last, gate_name, execution_time, dato_func):
 [{CHANNEL_ICON}] 𝐁𝐚𝐧𝐤: {info['bank']}
 [{CHANNEL_ICON}] 𝐂𝐨𝐮𝐧𝐭𝐫𝐲: {info['country']} {info['flag']}
 - - - - - - - - - - - - - - - - - - - - - -
-[{CHANNEL_ICO}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
-[{CHANNEL_ICO}] 𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐛𝐲: {checked_by_text}
+[{OWNER_ICO}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
+[{OWNER_ICO}] 𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐛𝐲: {checked_by_text}
 - - - - - - - - - - - - - - - - - - - - - -
 [{OWNER_ICON}] 𝐃𝐞𝐯 𝐛𝐲: {TOOL_BY}
 </b>"""
@@ -103,8 +103,8 @@ def insufficient_funds_message(cc, last, gate_name, execution_time, dato_func):
 [{CHANNEL_ICON}] 𝐁𝐚𝐧𝐤: {info['bank']}
 [{CHANNEL_ICON}] 𝐂𝐨𝐮𝐧𝐭𝐫𝐲: {info['country']} {info['flag']}
 - - - - - - - - - - - - - - - - - - - - - -
-[{CHANNEL_ICO}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
-[{CHANNEL_ICO}] 𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐛𝐲: {checked_by_text}
+[{OWNER_ICO}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
+[{OWNER_ICO}] 𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐛𝐲: {checked_by_text}
 - - - - - - - - - - - - - - - - - - - - - -
 [{OWNER_ICON}] 𝐃𝐞𝐯 𝐛𝐲: {TOOL_BY}
 </b>"""
@@ -124,8 +124,8 @@ def declined_message(cc, last, gate_name, execution_time, dato_func):
 [{CHANNEL_ICON}] 𝐁𝐚𝐧𝐤: {info['bank']}
 [{CHANNEL_ICON}] 𝐂𝐨𝐮𝐧𝐭𝐫𝐲: {info['country']} {info['flag']}
 - - - - - - - - - - - - - - - - - - - - - -
-[{CHANNEL_ICO}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
-[{CHANNEL_ICO}] 𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐛𝐲: {checked_by_text}
+[{OWNER_ICO}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
+[{OWNER_ICO}] 𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐛𝐲: {checked_by_text}
 - - - - - - - - - - - - - - - - - - - - - -
 [{OWNER_ICON}] 𝐃𝐞𝐯 𝐛𝐲: {TOOL_BY}
 </b>"""
