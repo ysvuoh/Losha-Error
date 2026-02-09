@@ -9,7 +9,8 @@ def get_user_name(user):
         return user.first_name
     else:
         return str(user.id)
-        
+
+
 def format_checked_by(user):
     if user.username:
         return f"@{user.username}"
@@ -17,6 +18,7 @@ def format_checked_by(user):
         return user.first_name
     else:
         return f"User ID: {user.id}"
+
 
 # ================= BIN DATA =================
 def dato(zh):
@@ -48,7 +50,7 @@ def dato(zh):
 
 
 # ================= APPROVED =================
-def approved_message(cc, last, gate_name, execution_time, dato_func, checked_by_text):
+def approved_message(cc, last, gate_name, execution_time, dato_func, checked_by_text=""):
     info = dato_func(cc[:6])
     return f"""<b>#{gate_name} [{CHANNEL_ICON}] 🌩
 - - - - - - - - - - - - - - - - - - - - - -
@@ -68,7 +70,7 @@ def approved_message(cc, last, gate_name, execution_time, dato_func, checked_by_
 
 
 # ================= CHARGED =================
-def charged_message(cc, last, gate_name, execution_time, dato_func, checked_by_text):
+def charged_message(cc, last, gate_name, execution_time, dato_func, checked_by_text=""):
     info = dato_func(cc[:6])
     return f"""<b>#{gate_name} [{CHANNEL_ICON}] 🌩
 - - - - - - - - - - - - - - - - - - - - - -
@@ -88,12 +90,12 @@ def charged_message(cc, last, gate_name, execution_time, dato_func, checked_by_t
 
 
 # ================= FUNDS =================
-def insufficient_funds_message(cc, last, gate_name, execution_time, dato_func, checked_by_text):
+def insufficient_funds_message(cc, last, gate_name, execution_time, dato_func, checked_by_text=""):
     info = dato_func(cc[:6])
     return f"""<b>#{gate_name} [{CHANNEL_ICON}] 🌩
 - - - - - - - - - - - - - - - - - - - - - -
 [{CHANNEL_ICON}] 𝐂𝐚𝐫𝐝: <code>{cc}</code>
-[{CHANNEL_ICON}] 𝐒𝐭𝐚𝐭𝐮𝐬: Insufficient Funds ✅
+[{CHANNEL_ICON}] 𝐒𝐭𝐚𝐭𝐮𝐬: Insufficient Funds 💸
 [{CHANNEL_ICON}] 𝐑𝐞𝐬𝐩𝐨𝐧𝐬𝐞: {last}
 - - - - - - - - - - - - - - - - - - - - - -
 [{CHANNEL_ICON}] 𝐁𝐢𝐧: {info['brand']} - {info['type']} - {info['level']}
@@ -108,12 +110,12 @@ def insufficient_funds_message(cc, last, gate_name, execution_time, dato_func, c
 
 
 # ================= DECLINED =================
-def declined_message(cc, last, gate_name, execution_time, dato_func, checked_by_text):
+def declined_message(cc, last, gate_name, execution_time, dato_func, checked_by_text=""):
     info = dato_func(cc[:6])
     return f"""<b>#{gate_name} [{CHANNEL_ICON}] 🌩
 - - - - - - - - - - - - - - - - - - - - - -
 [{CHANNEL_ICON}] 𝐂𝐚𝐫𝐝: <code>{cc}</code>
-[{CHANNEL_ICON}] 𝐒𝐭𝐚𝐭𝐮𝐬: Declined ❌️
+[{CHANNEL_ICON}] 𝐒𝐭𝐚𝐭𝐮𝐬: Declined ❌
 [{CHANNEL_ICON}] 𝐑𝐞𝐬𝐩𝐨𝐧𝐬𝐞: {last}
 - - - - - - - - - - - - - - - - - - - - - -
 [{CHANNEL_ICON}] 𝐁𝐢𝐧: {info['brand']} - {info['type']} - {info['level']}
@@ -128,7 +130,7 @@ def declined_message(cc, last, gate_name, execution_time, dato_func, checked_by_
 
 
 # ================= HIT DETECTED =================
-def hit_detected_message(name, status_type, execution_time, gateway, checked_by_text):
+def hit_detected_message(name, status_type, execution_time, gateway, checked_by_text=""):
     status_map = {
         "approved": "Approved ✅",
         "charged": "Charged ⚡",
