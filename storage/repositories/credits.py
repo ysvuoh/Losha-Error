@@ -25,17 +25,10 @@ def ensure_row(user_id: int):
 
 
 def deduct_one_atomic(user_id: int) -> bool:
-    """
-    يخصم نقطة واحدة فقط لو الرصيد > 0
-    """
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
-        """
-        UPDATE credits
-        SET balance = balance - 1
-        WHERE user_id = ? AND balance > 0
-        """,
+        "UPDATE credits SET balance = balance - 1 WHERE user_id = ? AND balance > 0",
         (user_id,)
     )
     success = cur.rowcount == 1
@@ -45,29 +38,20 @@ def deduct_one_atomic(user_id: int) -> bool:
 
 
 def deduct_credits(user_id: int, amount: int) -> bool:
-    """
-    يخصم عدد معين من النقاط
-    - لو الرصيد = -1 (Unlimited) لا يخصم
-    - يرجع True لو الخصم تم
-    """
     conn = get_connection()
     cur = conn.cursor()
-
     cur.execute(
-        """
-        UPDATE credits
-        SET balance = balance - ?
-        WHERE user_id = ?
-          AND balance != -1
-          AND balance >= ?
-        """,
+        "UPDATE credits "
+        "SET balance = balance - ? "
+        "WHERE user_id = ? "
+        "AND balance != -1 "
+        "AND balance >= ?",
         (amount, user_id, amount)
     )
-
     success = cur.rowcount == 1
     conn.commit()
     conn.close()
-    return success          AND balance >= ?
+    return success    return success          AND balance >= ?
     """, (amount, user_id, amount))
     success = cur.rowcount == 1
     conn.commit()
