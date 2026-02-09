@@ -5,7 +5,7 @@ import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
 from telebot import types
 from utils.admin_guard import is_admin
-from utils.classify.py import *
+from utils.classify import *
 from storage.repositories.bans import is_banned
 from security.channel_guard import *
 from storage.repositories.credits import *
