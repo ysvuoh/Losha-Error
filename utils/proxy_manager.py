@@ -107,24 +107,40 @@ def get_next_proxy_dict():
     """
     الحصول على البروكسي التالي من القائمة النشطة وتنسيقه كـ URL.
     """
-    if not PROXY_CYCLER:
+    global PROXY_CYCLER
+    if not ACTIVE_PROXIES:
         return None
+    
+    if not PROXY_CYCLER:
+        PROXY_CYCLER = cycle(ACTIVE_PROXIES)
     
     try:
         proxy_line = next(PROXY_CYCLER)
         proxy_url = format_proxy_url(proxy_line)
         return {"http": proxy_url, "https": proxy_url, "line": proxy_line}
-    except StopIteration:
+    except (StopIteration, TypeError):
+        if ACTIVE_PROXIES:
+            PROXY_CYCLER = cycle(ACTIVE_PROXIES)
+            proxy_line = next(PROXY_CYCLER)
+            proxy_url = format_proxy_url(proxy_line)
+            return {"http": proxy_url, "https": proxy_url, "line": proxy_line}
         return None
 
 def patched_request(self, *args, **kwargs):
     """
     الدالة المعدلة التي تضيف البروكسي وتتعامل مع الأخطاء.
     """
+    # إذا كانت الجلسة (Session) تحتوي بالفعل على بروكسيات، نستخدمها أو نستبدلها
+    # هنا سنقوم بفرض البروكسي من القائمة الخاصة بنا لضمان التبديل المستمر
     proxy_info = get_next_proxy_dict()
     
-    if proxy_info and 'proxies' not in kwargs:
-        kwargs['proxies'] = {"http": proxy_info["http"], "https": proxy_info["https"]}
+    if proxy_info:
+        proxy_dict = {"http": proxy_info["http"], "https": proxy_info["https"]}
+        # تحديث proxies في kwargs للطلبات المباشرة
+        kwargs['proxies'] = proxy_dict
+        # تحديث self.proxies إذا كان المستدعي هو Session object
+        if hasattr(self, 'proxies'):
+            self.proxies = proxy_dict
     
     if 'timeout' not in kwargs:
         kwargs['timeout'] = 20
