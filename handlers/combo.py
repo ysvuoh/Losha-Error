@@ -79,7 +79,35 @@ MAX_RETRY = 3
 def build_progress(percent: int, size: int = 10):
     filled = int((percent / 100) * size)
     return f"{'▰' * filled}{'▱' * (size - filled)} {percent}%"
+# ======== Build Progress Bar ========
+def build_progress(percent: int, size: int = 10):
+    filled = int((percent / 100) * size)
+    return f"{'▰' * filled}{'▱' * (size - filled)} {percent}%"
 
+# ======== Update Progress UI ========
+def update_progress_ui(uid, chat_id, message_id, card, status, gate_name, total, gate_type, force_update=False):
+    session = sessions.get(uid)
+    if not session: return
+
+    percent = int((session.checked / total) * 100) if total > 0 else 0
+
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        types.InlineKeyboardButton(f"━ 𝗖𝗖 • {card}", callback_data="x"),
+        types.InlineKeyboardButton(f"━ 𝗦𝗧𝗔𝗧𝗨𝗦 • {status}", callback_data="x"),
+        types.InlineKeyboardButton(f"━ {'𝗔𝗣𝗣𝗥𝗢𝗩𝗘𝗗 ✅' if gate_type == 'AUTH' else '𝗖𝗛𝗔𝗥𝗚𝗘𝗗 ⚡'} • {session.approved if gate_type == 'AUTH' else session.charged}", callback_data="x"),
+        types.InlineKeyboardButton(f"━ {'𝗗𝗘𝗖𝗟𝗜𝗡𝗘𝗗 ❌' if gate_type == 'AUTH' else '𝗙𝗨𝗡𝗗𝗦 💸'} • {session.declined if gate_type == 'AUTH' else session.funds}", callback_data="x"),
+        types.InlineKeyboardButton(f"━ 𝗧𝗢𝗧𝗔𝗟 ⚡ • {session.checked} / {total}", callback_data="x"),
+        types.InlineKeyboardButton("⛔ 𝗦𝗧𝗢𝗣 𝗖𝗛𝗘𝗖𝗞", callback_data="combo:stop"),
+    )
+
+    try:
+        bot_instance.edit_message_text(
+            f"<b>PLEASE WAIT CHECKING YOUR CARDS 💫\nGATE ➜ {gate_name}\n\n━━━━━━━━━━━━━━━━━━━━━━━\n{build_progress(percent)}\n━━━━━━━━━━━━━━━━━━━━━━━</b>",
+            chat_id, message_id, reply_markup=kb, parse_mode="HTML"
+        )
+    except Exception:
+        pass
 # ==================== Combo Registration ====================
 def register_combo(bot):
     global bot_instance
@@ -241,7 +269,7 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                 hit_type = None
                 execution_time = time.time() - start_time
 
-                # ===== تحديث الجلسة و إرسال الرسائل =====
+                # ===== تحديث الجلسة و إعداد الرسائل =====
                 with session.lock:
                     if status == "CHARGED":
                         session.charged += 1
@@ -267,10 +295,16 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                         hit_type = "declined"
                 
                     session.checked += 1
-                
 
-                # ===== إرسال HIT_CHAT لجميع hit_type =====
-                if hit_type in ["approved", "charged", "funds", "declined"]:
+                # ===== إرسال رسائل الكارت الفردية =====
+                if message_to_send:
+                    try:
+                        bot_instance.send_message(chat_id, message_to_send, parse_mode="HTML")
+                    except Exception as e:
+                        logger.error(f"[SEND_CARD_MSG_ERR] UID={uid} Card={card} Err={e}")
+
+                # ===== إرسال HIT_CHAT فقط للـ Charged و Funds =====
+                if hit_type in ["charged", "funds"]:
                     try:
                         bot_instance.send_message(
                             HIT_CHAT,
@@ -279,10 +313,13 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                         )
                     except Exception as e:
                         logger.error(f"[HIT_CHAT_ERR] UID={uid} Err={e}")
+
+                # ===== خصم الكريدتس فقط للـ Charged و Funds =====
                 if not is_admin(uid) and hit_type in ["approved", "charged", "funds", "declined"]:
                     with user_locks[uid]:
                         deduct_credits(uid, cost)
-                        logger.info(f"[CREDITS] UID={uid} -{cost} Remaining={get_credits(uid)}")                
+                        logger.info(f"[CREDITS] UID={uid} -{cost} Remaining={get_credits(uid)}")
+
                 # ---- تحديث الواجهة بعد كل بطاقة مع throttle 5 ثواني ----
                 if force_update_needed(last_update_time):
                     last_update_time = time.time()
@@ -301,15 +338,17 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
         update_progress_ui(uid, chat_id, message_id, "N/A", "Finished", gate_name, total, gate_type, force_update=True)
 
         # ---- ملخص النتائج ----
-        summary_text = f"<b>✨ CHECK SUMMARY ✨</b>\n" \
-                       f"━━━━━━━━━━━━━━━━━━\n" \
-                       f"Approved  ✅ : {session.approved}\n" \
-                       f"Charged   ⚡ : {session.charged}\n" \
-                       f"Funds     💸 : {session.funds}\n" \
-                       f"Declined  ❌ : {session.declined}\n" \
-                       f"━━━━━━━━━━━━━━━━━━\n" \
-                       f"Processed : {session.checked} / {total}\n" \
-                       f"━━━━━━━━━━━━━━━━━━"
+        summary_text = (
+            f"<b>✨ CHECK SUMMARY ✨</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"Approved  ✅ : {session.approved}\n"
+            f"Charged   ⚡ : {session.charged}\n"
+            f"Funds     💸 : {session.funds}\n"
+            f"Declined  ❌ : {session.declined}\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"Processed : {session.checked} / {total}\n"
+            f"━━━━━━━━━━━━━━━━━━"
+        )
         try:
             bot_instance.send_message(chat_id, summary_text, parse_mode="HTML")
             send_result_files(uid, chat_id)
