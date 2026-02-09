@@ -1,6 +1,5 @@
 from storage.db import get_connection
 
-# القيم الافتراضية لكل بوابة
 DEFAULT_GATES = {
     "stripe_auth": {
         "enabled": 1,
@@ -29,25 +28,22 @@ DEFAULT_GATES = {
     },
 }
 
-# ================= INIT =================
+
 def init_gates():
     conn = get_connection()
     cur = conn.cursor()
 
     for gate, data in DEFAULT_GATES.items():
-        cur.execute(
-            """
+        cur.execute("""
             INSERT OR IGNORE INTO gate_state
             (gate_key, enabled, max_cards, cost_per_card)
             VALUES (?, ?, ?, ?)
-            """,
-            (
-                gate,
-                data["enabled"],
-                data["max_cards"],
-                data["cost_per_card"],
-            )
-        )
+        """, (
+            gate,
+            data["enabled"],
+            data["max_cards"],
+            data["cost_per_card"],
+        ))
 
     conn.commit()
     conn.close()
@@ -63,11 +59,50 @@ def is_gate_enabled(gate_key: str) -> bool:
     )
     row = cur.fetchone()
     conn.close()
-    return bool(row and row[0] == 1)
+
+    if not row:
+        return DEFAULT_GATES.get(gate_key, {}).get("enabled", 0) == 1
+
+    return row[0] == 1
 
 
-def set_enabled(gate_key: str, value: bool):
+# ================= LIMIT =================
+def get_limit(gate_key: str) -> int:
     conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT max_cards FROM gate_state WHERE gate_key = ?",
+        (gate_key,)
+    )
+    row = cur.fetchone()
+    conn.close()
+
+    if not row or row[0] <= 0:
+        return DEFAULT_GATES.get(gate_key, {}).get("max_cards", 0)
+
+    return row[0]
+
+
+# ================= COST =================
+def get_cost(gate_key: str) -> int:
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT cost_per_card FROM gate_state WHERE gate_key = ?",
+        (gate_key,)
+    )
+    row = cur.fetchone()
+    conn.close()
+
+    if not row or row[0] <= 0:
+        return DEFAULT_GATES.get(gate_key, {}).get("cost_per_card", 1)
+
+    return row[0]
+
+
+# ===== Aliases للتوافق =====
+def is_enabled(gate_key: str) -> bool:
+    return is_gate_enabled(gate_key)    conn = get_connection()
     cur = conn.cursor()
     cur.execute(
         "UPDATE gate_state SET enabled = ? WHERE gate_key = ?",
