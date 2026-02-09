@@ -1,24 +1,52 @@
 def classify_result(text: str):
-    """
-    Classifies the result of a gate check based on its text content.
-    Gives priority to 'charged' and 'funds' over 'approved'.
-    """
     if not isinstance(text, str):
         return "DECLINED"
 
     t = text.lower()
 
-    # 1. Priority: Charged
-    if any(keyword in t for keyword in ["charged", "thank you", "succeeded", "payment successful", "donation successful"]):
+    # 0. Explicit negative approvals (HIGHEST priority)
+    negative_approved = [
+        "not approved",
+        "order not approved",
+        "approved=false",
+        "approval failed",
+        "approval declined",
+        "status: declined",
+        "declined",
+        "do not honor"
+    ]
+
+    if any(x in t for x in negative_approved):
+        return "DECLINED"
+
+    # 1. Charged
+    if any(x in t for x in [
+        "charged",
+        "payment successful",
+        "donation successful",
+        "thank you",
+        "succeeded"
+    ]):
         return "CHARGED"
 
-    # 2. Priority: Insufficient Funds
-    if any(keyword in t for keyword in ["insufficient_funds", "insufficient funds", "fund", "insufficient"]):
+    # 2. Insufficient Funds
+    if any(x in t for x in [
+        "insufficient_funds",
+        "insufficient funds",
+        "not enough funds",
+        "balance too low"
+    ]):
         return "FUNDS"
 
-    # 3. Check for Approved (only if not charged or funds)
-    if any(keyword in t for keyword in ["approved", "1000: approved", "approved (cvv)", "status: approved"]):
+    # 3. Approved (ONLY clean approvals)
+    approved_keywords = [
+        "approved (cvv)",
+        "auth approved",
+        "status: approved",
+        "1000: approved"
+    ]
+
+    if any(x in t for x in approved_keywords):
         return "APPROVED"
 
-    # 4. Default: Declined
     return "DECLINED"
