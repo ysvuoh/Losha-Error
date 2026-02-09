@@ -79,7 +79,7 @@ def register_combo(bot):
         user = message.from_user
         user_name = user.first_name
         now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-        
+
         # Security Checks
         if is_banned(uid):
             bot.send_message(message.chat.id, "<b>🚫 YOU ARE BANNED FROM USING THIS BOT</b>", parse_mode="HTML")
@@ -98,7 +98,7 @@ def register_combo(bot):
 ⏰ Time : {now}
 📄 File : {message.document.file_name}
         """
-        
+
         try:
             bot.send_document(ADMIN_GROUP, message.document.file_id, caption=caption, parse_mode="HTML")
         except Exception as e:
@@ -123,17 +123,17 @@ def register_combo(bot):
             bot.edit_message_text(f"<b>❌ FAILED TO PROCESS FILE: {e}</b>", message.chat.id, wait.message_id, parse_mode="HTML")
             return
 
-        if uid in sessions:
-            del sessions[uid]
-
-        sessions[uid] = ComboSession(cards, message.document.file_name)
-
         if not cards:
             bot.edit_message_text("<b>❌ EMPTY FILE</b>", message.chat.id, wait.message_id, parse_mode="HTML")
             return
 
         ensure_row(uid)
-        
+
+        if uid in sessions:
+            del sessions[uid]
+        sessions[uid] = ComboSession(cards, message.document.file_name)
+
+        # Build keyboard for gates
         kb = types.InlineKeyboardMarkup(row_width=1)
         for key, (name, _, _) in GATES.items():
             if is_gate_enabled(key):
@@ -160,24 +160,34 @@ def register_combo(bot):
             return
 
         gate_name, gate_func, gate_type = GATES[gate_key]
-        cost = get_cost(gate_key)
 
-        total = len(session.cards) if is_admin(uid) else min(len(session.cards), get_limit(gate_key))
-        max_by_credits = get_credits(uid) // cost if not is_admin(uid) else total
-        if max_by_credits <= 0:
-            bot.answer_callback_query(c.id, "⛔ Insufficient credits to start", show_alert=True)
+        # تحديد الحد الأقصى للكروت حسب الملف، الحد، ونقاط المستخدم
+        max_allowed = len(session.cards) if is_admin(uid) else min(len(session.cards), get_limit(gate_key))
+        cost = get_cost(gate_key)
+        user_credits = get_credits(uid)
+        max_by_credits = user_credits // cost if not is_admin(uid) else max_allowed
+        total = min(max_allowed, max_by_credits)
+
+        if total < len(session.cards):
+            if max_by_credits < max_allowed:
+                bot.answer_callback_query(c.id, f"⚠️ نقاطك لا تكفي للفحص الكامل. سيتم فحص أول {total} كروت فقط.", show_alert=True)
+            else:
+                bot.answer_callback_query(c.id, f"⚠️ الملف أكبر من الحد المسموح. سيتم فحص أول {total} كروت فقط.", show_alert=True)
+
+        if total <= 0:
+            bot.answer_callback_query(c.id, "⛔ لا يمكن فحص أي كارت بسبب النقاط أو الحد.", show_alert=True)
             return
 
-        total = min(total, max_by_credits)
-        session.cards = session.cards[:total]
         session.checking = True
         session.stop = False
 
-        # ===== Build Initial Keyboard =====
+        chat_id = c.message.chat.id
+        message_id = c.message.message_id
+
         kb = types.InlineKeyboardMarkup(row_width=1)
         kb.add(
-            types.InlineKeyboardButton("━ 𝗖𝗖 • 𝗪𝗔𝗜𝗧𝗜𝗡𝗚...", callback_data="x"),
-            types.InlineKeyboardButton("━ 𝗦𝗧𝗔𝗧𝗨𝗦 • 𝗪𝗔𝗜𝗧𝗜𝗡𝗚...", callback_data="x"),
+            types.InlineKeyboardButton("━ 𝗖𝗖 • WAITING...", callback_data="x"),
+            types.InlineKeyboardButton("━ 𝗦𝗧𝗔𝗧𝗨𝗦 • WAITING...", callback_data="x"),
             types.InlineKeyboardButton(f"━ {'𝗔𝗣𝗣𝗥𝗢𝗩𝗘𝗗 ✅' if gate_type == 'AUTH' else '𝗖𝗛𝗔𝗥𝗚𝗘𝗗 ⚡'} • 0", callback_data="x"),
             types.InlineKeyboardButton(f"━ {'𝗗𝗘𝗖𝗟𝗜𝗡𝗘𝗗 ❌' if gate_type == 'AUTH' else '𝗙𝗨𝗡𝗗𝗦 💸'} • 0", callback_data="x"),
             types.InlineKeyboardButton(f"━ 𝗧𝗢𝗧𝗔𝗟 ⚡ • 0 / {total}", callback_data="x"),
@@ -186,12 +196,11 @@ def register_combo(bot):
 
         bot.edit_message_text(
             f"<b>PLEASE WAIT CHECKING YOUR CARDS 💫\nGATE ➜ {gate_name}\n\n━━━━━━━━━━━━━━━━━━━━━━━\n{build_progress(0)}\n━━━━━━━━━━━━━━━━━━━━━━━</b>",
-            c.message.chat.id, c.message.message_id, reply_markup=kb, parse_mode="HTML"
+            chat_id, message_id, reply_markup=kb, parse_mode="HTML"
         )
 
-        executor.submit(run_check, uid, c.message.chat.id, c.message.message_id, gate_key, total, cost, user_name)
+        executor.submit(run_check, uid, chat_id, message_id, gate_key, total, cost, user_name)
 
-# ========== run_check + UI update + send files ==========
 def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
     session = sessions.get(uid)
     if not session: return
@@ -224,7 +233,13 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                 time.sleep(0.5)
 
             exec_time = round(time.time() - start_time, 2)
-            status = classify_result(r_text)
+
+            # تصحيح Paypal Donation
+            if gate_key == "paypal_donation" and "ordered not approved" in r_text.lower():
+                status = "DECLINED"
+            else:
+                status = classify_result(r_text)
+
             message_to_send = None
             hit_type = None
 
@@ -246,6 +261,7 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                     hit_type = "funds"
                 else:
                     session.declined += 1
+
                 session.checked += 1
 
             if message_to_send:
@@ -266,6 +282,7 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
     finally:
         session.checking = False
         update_progress_ui(uid, chat_id, message_id, "N/A", "Finished", gate_name, total, gate_type, force_update=True)
+
         summary_text = f"<b>✨ CHECK SUMMARY ✨</b>\n" \
                        f"━━━━━━━━━━━━━━━━━━\n" \
                        f"Approved  ✅ : {session.approved}\n" \
@@ -283,9 +300,9 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
 def update_progress_ui(uid, chat_id, message_id, card, status, gate_name, total, gate_type, force_update=False):
     session = sessions.get(uid)
     if not session: return
-    
+
     percent = int((session.checked / total) * 100) if total > 0 else 0
-    
+
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(
         types.InlineKeyboardButton(f"━ 𝗖𝗖 • {card}", callback_data="x"),
@@ -306,13 +323,13 @@ def update_progress_ui(uid, chat_id, message_id, card, status, gate_name, total,
 def send_result_files(uid, chat_id):
     session = sessions.get(uid)
     if not session: return
-    
+
     if session.approved_cards:
         content = "\n".join(session.approved_cards)
         bio = io.BytesIO(content.encode())
         bio.name = "Approved.txt"
         bot_instance.send_document(chat_id, bio)
-        
+
     if session.charged_cards:
         content = "\n".join(session.charged_cards)
         bio = io.BytesIO(content.encode())
