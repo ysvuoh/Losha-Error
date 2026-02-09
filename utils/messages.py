@@ -62,10 +62,10 @@ def approved_message(cc, last, gate_name, execution_time, dato_func, checked_by_
 [{CHANNEL_ICON}] 𝐁𝐚𝐧𝐤: {info['bank']}
 [{CHANNEL_ICON}] 𝐂𝐨𝐮𝐧𝐭𝐫𝐲: {info['country']} {info['flag']}
 - - - - - - - - - - - - - - - - - - - - - -
-[{OWNER_ICO}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
-[{OWNER_ICO}] 𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐛𝐲: {checked_by_text}
+[{CHANNEL_ICON}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
+[{CHANNEL_ICON}] 𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐛𝐲: {checked_by_text}
 - - - - - - - - - - - - - - - - - - - - - -
-[{OWNER_ICON}] 𝐃𝐞𝐯 𝐛𝐲: {TOOL_BY}
+[{CHANNEL_ICON}] 𝐃𝐞𝐯 𝐛𝐲: {TOOL_BY}
 </b>"""
 
 
@@ -82,10 +82,10 @@ def charged_message(cc, last, gate_name, execution_time, dato_func, checked_by_t
 [{CHANNEL_ICON}] 𝐁𝐚𝐧𝐤: {info['bank']}
 [{CHANNEL_ICON}] 𝐂𝐨𝐮𝐧𝐭𝐫𝐲: {info['country']} {info['flag']}
 - - - - - - - - - - - - - - - - - - - - - -
-[{OWNER_ICO}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
-[{OWNER_ICO}] 𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐛𝐲: {checked_by_text}
+[{CHANNEL_ICON}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
+[{CHANNEL_ICON}] 𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐛𝐲: {checked_by_text}
 - - - - - - - - - - - - - - - - - - - - - -
-[{OWNER_ICON}] 𝐃𝐞𝐯 𝐛𝐲: {TOOL_BY}
+[{CHANNEL_ICON}] 𝐃𝐞𝐯 𝐛𝐲: {TOOL_BY}
 </b>"""
 
 
@@ -102,10 +102,10 @@ def insufficient_funds_message(cc, last, gate_name, execution_time, dato_func, c
 [{CHANNEL_ICON}] 𝐁𝐚𝐧𝐤: {info['bank']}
 [{CHANNEL_ICON}] 𝐂𝐨𝐮𝐧𝐭𝐫𝐲: {info['country']} {info['flag']}
 - - - - - - - - - - - - - - - - - - - - - -
-[{OWNER_ICO}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
-[{OWNER_ICO}] 𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐛𝐲: {checked_by_text}
+[{CHANNEL_ICON}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
+[{CHANNEL_ICON}] 𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐛𝐲: {checked_by_text}
 - - - - - - - - - - - - - - - - - - - - - -
-[{OWNER_ICON}] 𝐃𝐞𝐯 𝐛𝐲: {TOOL_BY}
+[{CHANNEL_ICON}] 𝐃𝐞𝐯 𝐛𝐲: {TOOL_BY}
 </b>"""
 
 
@@ -122,10 +122,10 @@ def declined_message(cc, last, gate_name, execution_time, dato_func, checked_by_
 [{CHANNEL_ICON}] 𝐁𝐚𝐧𝐤: {info['bank']}
 [{CHANNEL_ICON}] 𝐂𝐨𝐮𝐧𝐭𝐫𝐲: {info['country']} {info['flag']}
 - - - - - - - - - - - - - - - - - - - - - -
-[{OWNER_ICO}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
-[{OWNER_ICO}] 𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐛𝐲: {checked_by_text}
+[{CHANNEL_ICON}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
+[{CHANNEL_ICON}] 𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐛𝐲: {checked_by_text}
 - - - - - - - - - - - - - - - - - - - - - -
-[{OWNER_ICON}] 𝐃𝐞𝐯 𝐛𝐲: {TOOL_BY}
+[{CHANNEL_ICON}] 𝐃𝐞𝐯 𝐛𝐲: {TOOL_BY}
 </b>"""
 
 
@@ -146,7 +146,7 @@ def hit_detected_message(name, status_type, execution_time, gateway, checked_by_
 [{CHANNEL_ICON}] 𝐒𝐭𝐚𝐭𝐮𝐬: {status_text}
 [{CHANNEL_ICON}] 𝐓𝐢𝐦𝐞: {execution_time:.2f}s
 [{CHANNEL_ICON}] 𝐆𝐚𝐭𝐞𝐰𝐚𝐲: {gateway}
-[{OWNER_ICO}] 𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐛𝐲: {checked_by_text}
+[{CHANNEL_ICON}] 𝐂𝐡𝐞𝐜𝐤𝐞𝐝 𝐛𝐲: {checked_by_text}
 - - - - - - - - - - - - - - - - - - - -
 [{CHANNEL_ICON}] 𝐓𝐨𝐨𝐥 𝐁𝐲: {TOOL_BY}
 </b>"""
