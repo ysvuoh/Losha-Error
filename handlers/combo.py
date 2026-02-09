@@ -105,7 +105,11 @@ def register_combo(bot):
         if is_banned(uid):
             bot.send_message(message.chat.id, "<b>🚫 YOU ARE BANNED FROM USING THIS BOT</b>", parse_mode="HTML")
             return
-
+            
+        if not is_channel_subscribed(bot, user_id):
+            send_channel_prompt(bot, message.chat.id, name)
+            return
+            
         if uid in sessions and sessions[uid].checking:
             bot.send_message(message.chat.id, "<b>❌ A CHECK IS ALREADY RUNNING</b>", parse_mode="HTML")
             return
