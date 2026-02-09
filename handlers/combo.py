@@ -30,7 +30,7 @@ from gates.stripe_charge import check as stripe_charge_check
 from gates.paypal_donation import check as paypal_donation_check
 
 # ==================== Global ====================
-MAX_THREADS = 15
+MAX_THREADS = 20
 cpu_count = multiprocessing.cpu_count()
 max_threads = min(MAX_THREADS, max(1, cpu_count if cpu_count else 1))
 executor = ThreadPoolExecutor(max_workers=max_threads)
@@ -77,6 +77,7 @@ def register_combo(bot):
     @bot.message_handler(content_types=["document"])
     def receive_combo(message):
         uid = message.from_user.id
+        user_id = message.from_user.id
         user = message.from_user
         user_name = user.first_name
         now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
