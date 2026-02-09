@@ -160,7 +160,7 @@ def register_combo(bot):
         session.stop = False
         logger.info(f"[START] UID={uid} GATE={gate_info['name']} TOTAL={total} CARDS={len(session.cards)}")
         
-        logger.info(f"[CHECK] UID={uid} Card {i+1}/{total} Status={status}")
+
 
         chat_id = c.message.chat.id
         message_id = c.message.message_id
