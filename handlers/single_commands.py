@@ -4,7 +4,7 @@ import time
 from threading import Lock
 import sqlite3
 from pathlib import Path
-
+from utils.classify import classify_result
 from security.channel_guard import is_channel_subscribed, send_channel_prompt
 from storage.repositories.bans import is_banned
 from storage.repositories.credits import get_credits, deduct_one_atomic
@@ -128,7 +128,9 @@ def register_single_commands(bot):
             )
             return
             
-
+        if not is_channel_subscribed(bot, user_id):
+            send_channel_prompt(bot, message.chat.id, name)
+            return
         gate_name, gate_func, gate_type, db_key = SINGLE_GATES[gate_key]
 
         # ⛔ GATE DISABLED
@@ -177,61 +179,43 @@ def register_single_commands(bot):
             deduct_credits(user_id, cost_to_deduct)
 
 
-        # ===== AUTH =====
-        if gate_type == "AUTH":
-            if "approved" in result_l:
-                user_text = approved_message(card, result, gate_name, exec_time, dato)
-                safe_edit(bot, message.chat.id, msg_id, user_text)
+        # ===== Classify and Send Result =====
+        status = classify_result(result)
+        user_text = ""
+        hit_type = None
+        pin_message = False
 
-                if message.chat.type != "private":
-                    safe_pin(bot, message.chat.id, msg_id)
+        if status == "CHARGED":
+            user_text = charged_message(card, result, gate_name, exec_time, dato)
+            hit_type = "charged"
+            pin_message = True
+        
+        elif status == "APPROVED":
+            user_text = approved_message(card, result, gate_name, exec_time, dato)
+            hit_type = "approved"
+            pin_message = True
 
-                hit_text = hit_detected_message(
-                    user_name,
-                    "approved",
-                    exec_time,
-                    gate_name
-                )
-                send_hit(bot, HIT_CHAT, hit_text)
-            else:
-                user_text = declined_message(card, result, gate_name, exec_time, dato)
-                safe_edit(bot, message.chat.id, msg_id, user_text)
+        elif status == "FUNDS":
+            user_text = insufficient_funds_message(card, result, gate_name, exec_time, dato)
+            hit_type = "funds"
+            pin_message = True
 
-        # ===== CHARGE =====
-        else:
-            if "charged" in result_l or "thank you" in result_l:
-                user_text = charged_message(card, result, gate_name, exec_time, dato)
-                safe_edit(bot, message.chat.id, msg_id, user_text)
+        else: # Declined
+            user_text = declined_message(card, result, gate_name, exec_time, dato)
+            pin_message = False
 
-                if message.chat.type != "private":
-                    safe_pin(bot, message.chat.id, msg_id)
+        # Send the final message to the user
+        safe_edit(bot, message.chat.id, msg_id, user_text)
 
-                hit_text = hit_detected_message(
-                    user_name,
-                    "charged",
-                    exec_time,
-                    gate_name
-                )
-                send_hit(bot, HIT_CHAT, hit_text)
+        # Pin if it was a hit in a group chat
+        if pin_message and message.chat.type != "private":
+            safe_pin(bot, message.chat.id, msg_id)
 
-            elif "fund" in result_l:
-                user_text = insufficient_funds_message(card, result, gate_name, exec_time, dato)
-                safe_edit(bot, message.chat.id, msg_id, user_text)
+        # Send hit notification to the hit channel
+        if hit_type:
+            hit_text = hit_detected_message(user_name, hit_type, exec_time, gate_name)
+            send_hit(bot, HIT_CHAT, hit_text)
 
-                if message.chat.type != "private":
-                    safe_pin(bot, message.chat.id, msg_id)
-
-                hit_text = hit_detected_message(
-                    user_name,
-                    "funds",
-                    exec_time,
-                    gate_name
-                )
-                send_hit(bot, HIT_CHAT, hit_text)
-
-            else:
-                user_text = declined_message(card, result, gate_name, exec_time, dato)
-                safe_edit(bot, message.chat.id, msg_id, user_text)
 
     # ===== HANDLER =====
     @bot.message_handler(
