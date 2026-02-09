@@ -1,25 +1,23 @@
-# File: utils/classify.py
-
 def classify_result(text: str):
     """
     Classifies the result of a gate check based on its text content.
     Gives priority to 'charged' and 'funds' over 'approved'.
     """
     if not isinstance(text, str):
-        return "DECLINED" # Handle non-string inputs
+        return "DECLINED"
 
     t = text.lower()
 
     # 1. Priority: Charged
-    if "charged" in t or "thank you for your donation" in t or "thank you" in t or "succeeded" in t:
+    if any(keyword in t for keyword in ["charged", "thank you", "succeeded", "payment successful", "donation successful"]):
         return "CHARGED"
 
     # 2. Priority: Insufficient Funds
-    if "insufficient_funds" in t or "insufficient funds" in t or "fund" in t:
+    if any(keyword in t for keyword in ["insufficient_funds", "insufficient funds", "fund", "insufficient"]):
         return "FUNDS"
 
     # 3. Check for Approved (only if not charged or funds)
-    if "approved" in t or "1000: approved" in t:
+    if any(keyword in t for keyword in ["approved", "1000: approved", "approved (cvv)", "status: approved"]):
         return "APPROVED"
 
     # 4. Default: Declined
