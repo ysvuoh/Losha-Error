@@ -28,7 +28,8 @@ def deduct_one_atomic(user_id: int) -> bool:
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
-        "UPDATE credits SET balance = balance - 1 WHERE user_id = ? AND balance > 0",
+        "UPDATE credits SET balance = balance - 1 "
+        "WHERE user_id = ? AND balance > 0",
         (user_id,)
     )
     success = cur.rowcount == 1
@@ -48,11 +49,6 @@ def deduct_credits(user_id: int, amount: int) -> bool:
         "AND balance >= ?",
         (amount, user_id, amount)
     )
-    success = cur.rowcount == 1
-    conn.commit()
-    conn.close()
-    return success    return success          AND balance >= ?
-    """, (amount, user_id, amount))
     success = cur.rowcount == 1
     conn.commit()
     conn.close()
