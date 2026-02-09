@@ -119,10 +119,16 @@ def startup():
 # MAIN
 # =========================
 
+from utils.proxy_manager import load_and_clean_proxies, activate_proxy_patching
+
 def main():
     global bot_instance
 
     setup_logging()
+    
+    # ---- ACTIVATE PROXIES ----
+    load_and_clean_proxies()
+    activate_proxy_patching()
     logger.info(f"Environment mode: {ENV_MODE.upper()}")
 
     bot_instance = startup()
