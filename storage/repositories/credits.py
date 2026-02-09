@@ -1,14 +1,10 @@
 from storage.db import get_connection
 
-def get_credits(user_id: int) -> int:
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT balance FROM credits WHERE user_id = ?", (user_id,))
-    row = cur.fetchone()
-    conn.close()
-    return row[0] if row else 0
 
 def ensure_row(user_id: int):
+    """
+    Ensure user exists in credits table.
+    """
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
@@ -18,32 +14,62 @@ def ensure_row(user_id: int):
     conn.commit()
     conn.close()
 
+
+def get_credits(user_id: int) -> int:
+    """
+    Returns current credits.
+    -1 means unlimited.
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT balance FROM credits WHERE user_id = ?",
+        (user_id,)
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else 0
+
+
 def deduct_one_atomic(user_id: int) -> bool:
     """
-    خصم ذرّي: يخصم نقطة واحدة فقط لو الرصيد > 0
+    Deduct ONE credit atomically.
+    Used for simple single checks.
     """
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
         UPDATE credits
         SET balance = balance - 1
-        WHERE user_id = ? AND balance > 0
+        WHERE user_id = ?
+          AND balance > 0
+          AND balance != -1
     """, (user_id,))
     success = cur.rowcount == 1
     conn.commit()
     conn.close()
     return success
+
+
+def deduct_credits_atomic(user_id: int, amount: int) -> bool:
+    """
+    Atomically deduct a specific amount of credits.
     
-    
-    
-def deduct_credits(user_id: int, amount: int):
-    """Deducts a specific amount of credits from a user's balance."""
+    Rules:
+    - balance must be >= amount
+    - balance != -1 (unlimited)
+    - prevents negative balance
+    """
     conn = get_connection()
     cur = conn.cursor()
-    # -1 means unlimited, so don't deduct
-    cur.execute(
-        "UPDATE credits SET balance = balance - ? WHERE user_id = ? AND balance != -1",
-        (amount, user_id)
-    )
+    cur.execute("""
+        UPDATE credits
+        SET balance = balance - ?
+        WHERE user_id = ?
+          AND balance != -1
+          AND balance >= ?
+    """, (amount, user_id, amount))
+    success = cur.rowcount == 1
     conn.commit()
     conn.close()
+    return success
