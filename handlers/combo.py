@@ -3,7 +3,6 @@ import time
 import io
 import multiprocessing
 import logging
-import os
 from concurrent.futures import ThreadPoolExecutor
 from telebot import types
 from utils.admin_guard import is_admin
@@ -14,41 +13,32 @@ from storage.repositories.gates import is_gate_enabled, get_limit, get_cost
 from datetime import datetime
 from config.settings import ADMIN_GROUP, HIT_CHAT
 from utils.classify import classify_result
-from utils.messages import (
-    approved_message,
-    charged_message,
-    insufficient_funds_message,
-    hit_detected_message,
-    get_user_name
-)
+from utils.messages import get_user_name
 from collections import defaultdict
 from threading import Lock
 
-# ================= Logging Setup =================
+# ================= LOGGING =================
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-    handlers=[logging.StreamHandler()]
+    format="%(asctime)s | %(levelname)s | %(message)s"
 )
 logger = logging.getLogger("COMBO")
 
-# ================= Import Gates =================
+# ================= GATES =================
 from gates.stripe_auth import check as stripe_auth_check
 from gates.braintree_auth import check as braintree_auth_check
 from gates.shopify_charge import check as shopify_charge_check
 from gates.stripe_charge import check as stripe_charge_check
 from gates.paypal_donation import check as paypal_donation_check
 
-# ================= Global =================
+# ================= GLOBAL =================
 MAX_THREADS = 15
-cpu_count = multiprocessing.cpu_count()
-executor = ThreadPoolExecutor(max_workers=min(MAX_THREADS, max(1, cpu_count)))
-
+executor = ThreadPoolExecutor(max_workers=MAX_THREADS)
 user_locks = defaultdict(Lock)
 sessions = {}
 bot_instance = None
 
-# ================= Session =================
+# ================= SESSION =================
 class ComboSession:
     def __init__(self, cards, filename):
         self.cards = cards
@@ -64,23 +54,69 @@ class ComboSession:
         self.charged_cards = []
         self.funds_cards = []
         self.lock = Lock()
+        self.keyboard = None
+        self.msg_id = None
+        self.gate_type = None
+        self.total = len(cards)
 
-# ================= Gates =================
+# ================= AVAILABLE GATES =================
 AVAILABLE_GATES = {
-    "stripe_auth": {"name": "Stripe_Auth", "func": stripe_auth_check, "type": "AUTH"},
-    "braintree_auth": {"name": "Braintree_Auth", "func": braintree_auth_check, "type": "AUTH"},
-    "shopify_charge": {"name": "Shopify_Charge", "func": shopify_charge_check, "type": "CHARGE"},
-    "stripe_charge": {"name": "Stripe_Charge", "func": stripe_charge_check, "type": "CHARGE"},
-    "paypal_donation": {"name": "Paypal_Donation", "func": paypal_donation_check, "type": "CHARGE"},
+    "stripe_auth": {"name": "Stripe Auth", "func": stripe_auth_check, "type": "AUTH"},
+    "braintree_auth": {"name": "Braintree Auth", "func": braintree_auth_check, "type": "AUTH"},
+    "shopify_charge": {"name": "Shopify Charge", "func": shopify_charge_check, "type": "CHARGE"},
+    "stripe_charge": {"name": "Stripe Charge", "func": stripe_charge_check, "type": "CHARGE"},
+    "paypal_donation": {"name": "Paypal Donation", "func": paypal_donation_check, "type": "CHARGE"},
 }
 
 MAX_RETRY = 3
 
-def build_progress(percent, size=10):
-    filled = int((percent / 100) * size)
-    return f"{'▰'*filled}{'▱'*(size-filled)} {percent}%"
+# ================= KEYBOARDS =================
+def build_waiting_keyboard(session):
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        types.InlineKeyboardButton("━ CC • WAITING ⏳", callback_data="x"),
+        types.InlineKeyboardButton("━ STATUS • WAITING ⏳", callback_data="x"),
+        types.InlineKeyboardButton("━ APPROVED ✅ • 0", callback_data="x"),
+        types.InlineKeyboardButton("━ DECLINED ❌ • 0", callback_data="x"),
+        types.InlineKeyboardButton(f"━ TOTAL • 0 / {session.total}", callback_data="x"),
+        types.InlineKeyboardButton("⛔ STOP CHECK", callback_data="combo:stop"),
+    )
+    return kb
 
-# ================= Combo Registration =================
+
+def build_running_keyboard(session):
+    kb = types.InlineKeyboardMarkup(row_width=1)
+
+    approved = session.approved if session.gate_type == "AUTH" else session.charged
+    declined = session.declined if session.gate_type == "AUTH" else session.funds
+
+    kb.add(
+        types.InlineKeyboardButton(f"━ CC • {session.checked}/{session.total}", callback_data="x"),
+        types.InlineKeyboardButton("━ STATUS • RUNNING ⚙️", callback_data="x"),
+        types.InlineKeyboardButton(f"━ APPROVED ✅ • {approved}", callback_data="x"),
+        types.InlineKeyboardButton(f"━ DECLINED ❌ • {declined}", callback_data="x"),
+        types.InlineKeyboardButton(
+            f"━ TOTAL • {session.checked}/{session.total}", callback_data="x"
+        ),
+        types.InlineKeyboardButton("⛔ STOP CHECK", callback_data="combo:stop"),
+    )
+    return kb
+
+
+def build_finished_keyboard(session):
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        types.InlineKeyboardButton("━ CC • DONE ✅", callback_data="x"),
+        types.InlineKeyboardButton("━ STATUS • FINISHED 🏁", callback_data="x"),
+        types.InlineKeyboardButton(f"━ APPROVED ✅ • {session.approved}", callback_data="x"),
+        types.InlineKeyboardButton(f"━ DECLINED ❌ • {session.declined}", callback_data="x"),
+        types.InlineKeyboardButton(
+            f"━ TOTAL • {session.checked}/{session.total}", callback_data="x"
+        ),
+    )
+    return kb
+
+# ================= REGISTER =================
 def register_combo(bot):
     global bot_instance
     bot_instance = bot
@@ -88,27 +124,22 @@ def register_combo(bot):
     @bot.message_handler(content_types=["document"])
     def receive_combo(message):
         uid = message.from_user.id
-        user_name = message.from_user.first_name
-        logger.info(f"[UPLOAD] User={uid} Name={user_name}")
+        logger.info(f"[UPLOAD] UID={uid}")
 
         if is_banned(uid):
             bot.send_message(message.chat.id, "BANNED")
             return
 
         if not is_channel_subscribed(bot, uid):
-            send_channel_prompt(bot, message.chat.id, user_name)
+            send_channel_prompt(bot, message.chat.id, message.from_user.first_name)
             return
 
-        try:
-            file_info = bot.get_file(message.document.file_id)
-            raw = bot.download_file(file_info.file_path)
-            cards = [c.strip() for c in raw.decode(errors="ignore").splitlines() if c.strip()]
-            logger.info(f"[FILE] CardsLoaded={len(cards)}")
-        except Exception as e:
-            logger.error(f"[FILE_ERROR] {e}")
-            return
+        file_info = bot.get_file(message.document.file_id)
+        raw = bot.download_file(file_info.file_path)
+        cards = [c.strip() for c in raw.decode(errors="ignore").splitlines() if c.strip()]
 
         sessions[uid] = ComboSession(cards, message.document.file_name)
+        ensure_row(uid)
 
         kb = types.InlineKeyboardMarkup()
         for key, g in AVAILABLE_GATES.items():
@@ -127,67 +158,70 @@ def register_combo(bot):
             return
 
         gate = AVAILABLE_GATES[gate_key]
-        total = len(session.cards)
-        cost = get_cost(gate_key)
-
+        session.gate_type = gate["type"]
         session.checking = True
-        logger.info(f"[START] User={uid} Gate={gate['name']} Cards={total}")
 
-        executor.submit(
-            run_check,
-            uid,
+        logger.info(f"[START] UID={uid} GATE={gate_key}")
+
+        session.keyboard = build_waiting_keyboard(session)
+
+        bot.edit_message_text(
+            "CHECK INITIALIZED...",
             c.message.chat.id,
             c.message.message_id,
-            gate_key,
-            total,
-            cost,
-            get_user_name(c.from_user)
+            reply_markup=session.keyboard
         )
 
-# ================= Run Check =================
-def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
+        session.msg_id = c.message.message_id
+
+        executor.submit(run_check, uid, c.message.chat.id, gate_key)
+
+    @bot.callback_query_handler(func=lambda c: c.data == "combo:stop")
+    def stop_combo(c):
+        uid = c.from_user.id
+        session = sessions.get(uid)
+        if session:
+            session.stop = True
+            logger.warning(f"[STOP] UID={uid}")
+            bot.answer_callback_query(c.id, "Stopped")
+
+    @bot.callback_query_handler(func=lambda c: c.data == "x")
+    def ignore(c):
+        bot.answer_callback_query(c.id)
+
+# ================= RUN CHECK =================
+def run_check(uid, chat_id, gate_key):
     session = sessions.get(uid)
     gate = AVAILABLE_GATES[gate_key]
-    gate_func = gate["func"]
+    cost = get_cost(gate_key)
 
-    if not callable(gate_func):
-        logger.critical(f"[FATAL] Gate not callable: {gate_key}")
-        return
+    logger.info(f"[RUN] UID={uid} TOTAL={session.total}")
 
-    for i, card in enumerate(session.cards):
-        logger.info(f"[LOOP] {i+1}/{total} Card={card}")
-
+    for card in session.cards:
         if session.stop:
-            logger.warning("[STOP] Requested by user")
+            logger.warning("[BREAK] STOPPED")
             break
 
-        credits = get_credits(uid)
-        if not is_admin(uid) and credits < cost:
-            logger.warning(f"[STOP] No credits ({credits} < {cost})")
+        if not is_admin(uid) and get_credits(uid) < cost:
+            logger.warning("[BREAK] NO CREDITS")
             break
-
-        r_text = "NO_RESPONSE"
 
         for attempt in range(1, MAX_RETRY + 1):
             try:
-                logger.debug(f"[GATE] Try={attempt}")
-                r = gate_func(card)
-                r_text = str(r)
+                logger.debug(f"[TRY] {attempt} CARD={card}")
+                r = gate["func"](card)
                 break
             except Exception as e:
-                r_text = f"GATE_EXCEPTION: {e}"
-                logger.error(r_text)
+                logger.error(f"[ERROR] {e}")
                 time.sleep(1)
+        else:
+            r = "DECLINED"
 
-        try:
-            status = classify_result(r_text)
-        except Exception as e:
-            logger.error(f"[CLASSIFY_ERROR] {e}")
-            status = "DECLINED"
-
-        logger.info(f"[RESULT] Status={status} Raw='{r_text[:120]}'")
+        status = classify_result(str(r))
+        logger.info(f"[RESULT] {status}")
 
         with session.lock:
+            session.checked += 1
             if status == "APPROVED":
                 session.approved += 1
                 session.approved_cards.append(card)
@@ -200,37 +234,40 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
             else:
                 session.declined += 1
 
-            session.checked += 1
-
-            logger.debug(
-                f"[COUNTERS] checked={session.checked} "
-                f"approved={session.approved} charged={session.charged} "
-                f"funds={session.funds} declined={session.declined}"
-            )
+            session.keyboard = build_running_keyboard(session)
 
         if not is_admin(uid):
             with user_locks[uid]:
                 deduct_credits(uid, cost)
 
-        logger.info("[CONTINUE] Next card")
+        bot_instance.edit_message_reply_markup(
+            chat_id,
+            session.msg_id,
+            reply_markup=session.keyboard
+        )
 
-    logger.info(f"[FINISH] User={uid} Checked={session.checked}/{total}")
+    session.keyboard = build_finished_keyboard(session)
+    bot_instance.edit_message_reply_markup(
+        chat_id,
+        session.msg_id,
+        reply_markup=session.keyboard
+    )
+
+    logger.info("[FINISHED]")
     send_result_files(uid, chat_id)
 
-# ================= Result Files =================
+# ================= RESULTS =================
 def send_result_files(uid, chat_id):
     session = sessions.get(uid)
     if not session:
         return
 
-    files = [
+    for data, name in [
         (session.approved_cards, "Approved.txt"),
         (session.charged_cards, "Charged.txt"),
         (session.funds_cards, "Funds.txt"),
-    ]
-
-    for cards, name in files:
-        if cards:
-            bio = io.BytesIO("\n".join(cards).encode())
+    ]:
+        if data:
+            bio = io.BytesIO("\n".join(data).encode())
             bio.name = name
             bot_instance.send_document(chat_id, bio)
