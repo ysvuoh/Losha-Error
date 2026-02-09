@@ -69,6 +69,33 @@ def build_progress(percent: int, size: int = 10):
     filled = int((percent / 100) * size)
     return f"{'▰' * filled}{'▱' * (size - filled)} {percent}%"
 
+# ================= UPDATE UI ====================
+def update_progress_ui(uid, chat_id, message_id, card, result, gate_name, total, gate_type, force_update=False):
+    session = sessions.get(uid)
+    if not session: return
+
+    percent = int((session.checked / total) * 100) if total else 0
+    progress_bar = build_progress(percent)
+
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        types.InlineKeyboardButton(f"━ 𝗖𝗖 • {card}", callback_data="x"),
+        types.InlineKeyboardButton(f"━ 𝗦𝗧𝗔𝗧𝗨𝗦 • {result}", callback_data="x"),
+        types.InlineKeyboardButton(f"━ {'𝗔𝗣𝗣𝗥𝗢𝗩𝗘𝗗 ✅' if gate_type=='AUTH' else '𝗖𝗛𝗔𝗥𝗚𝗘𝗗 ⚡'} • {session.approved if gate_type=='AUTH' else session.charged}", callback_data="x"),
+        types.InlineKeyboardButton(f"━ {'𝗗𝗘𝗖𝗟𝗜𝗡𝗘𝗗 ❌' if gate_type=='AUTH' else '𝗙𝗨𝗡𝗗𝗦 💸'} • {session.declined if gate_type=='AUTH' else session.funds}", callback_data="x"),
+        types.InlineKeyboardButton(f"━ 𝗧𝗢𝗧𝗔𝗟 ⚡ • {session.checked} / {total}", callback_data="x"),
+        types.InlineKeyboardButton("⛔ 𝗦𝗧𝗢𝗣 𝗖𝗛𝗘𝗖𝗞", callback_data="combo:stop"),
+    )
+
+    try:
+        bot_instance.edit_message_text(
+            f"<b>CHECKING CARDS 💫\nGATE ➜ {gate_name}\n\n━━━━━━━━━━━━\n{progress_bar}\n━━━━━━━━━━━━</b>",
+            chat_id, message_id, reply_markup=kb, parse_mode="HTML"
+        )
+    except Exception as e:
+        if not force_update:
+            print(f"UI update skipped: {e}")
+
 # ================= REGISTER COMBO =================
 def register_combo(bot):
     global bot_instance
@@ -177,20 +204,8 @@ def register_combo(bot):
         chat_id = c.message.chat.id
         message_id = c.message.message_id
 
-        kb = types.InlineKeyboardMarkup(row_width=1)
-        kb.add(
-            types.InlineKeyboardButton("━ 𝗖𝗖 • 𝗪𝗔𝗜𝗧𝗜𝗡𝗚...", callback_data="x"),
-            types.InlineKeyboardButton("━ 𝗦𝗧𝗔𝗧𝗨𝗦 • 𝗪𝗔𝗜𝗧𝗜𝗡𝗚...", callback_data="x"),
-            types.InlineKeyboardButton(f"━ {'𝗔𝗣𝗣𝗥𝗢𝗩𝗘𝗗 ✅' if gate_type == 'AUTH' else '𝗖𝗛𝗔𝗥𝗚𝗘𝗗 ⚡'} • 0", callback_data="x"),
-            types.InlineKeyboardButton(f"━ {'𝗗𝗘𝗖𝗟𝗜𝗡𝗘𝗗 ❌' if gate_type == 'AUTH' else '𝗙𝗨𝗡𝗗𝗦 💸'} • 0", callback_data="x"),
-            types.InlineKeyboardButton(f"━ 𝗧𝗢𝗧𝗔𝗟 ⚡ • 0 / {total}", callback_data="x"),
-            types.InlineKeyboardButton("⛔ 𝗦𝗧𝗢𝗣 𝗖𝗛𝗘𝗖𝗞", callback_data="combo:stop"),
-        )
-
-        bot.edit_message_text(
-            f"<b>PLEASE WAIT CHECKING YOUR CARDS 💫\nGATE ➜ {gate_name}\n\n━━━━━━━━━━━━━━━━━━━━━━━\n{build_progress(0)}\n━━━━━━━━━━━━━━━━━━━━━━━</b>",
-            chat_id, message_id, reply_markup=kb, parse_mode="HTML"
-        )
+        # ===== فور بدء الفحص حدث الـ UI مباشرة =====
+        update_progress_ui(uid, chat_id, message_id, "Starting...", "Initializing...", gate_name, total, gate_type, force_update=True)
 
         executor.submit(run_check, uid, chat_id, message_id, gate_key, total, cost)
 
