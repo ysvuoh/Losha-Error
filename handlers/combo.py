@@ -183,10 +183,12 @@ def register_combo(bot):
 # ==================== Run Check Function ====================
 def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
     session = sessions.get(uid)
-    if not session: return
+    if not session: 
+        return
 
     gate_info = AVAILABLE_GATES.get(gate_key)
-    if not gate_info: return
+    if not gate_info: 
+        return
 
     gate_name = gate_info["name"]
     gate_func = gate_info["func"]
@@ -200,24 +202,37 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                 logger.info(f"[STOP] UID={uid} at card {i}")
                 break
 
+            # التأكد من رصيد المستخدم
             current_credits = get_credits(uid)
             if not is_admin(uid) and current_credits < cost:
                 session.stop = True
                 logger.warning(f"[BREAK] NO CREDITS UID={uid}")
                 bot_instance.send_message(chat_id, "<b>⚠️ CHECK STOPPED - INSUFFICIENT CREDITS</b>", parse_mode="HTML")
-                continue  # <<< بدل break
+                continue
 
             r_text = "Unknown Error"
             try:
                 for attempt in range(MAX_RETRY):
                     try:
-                        response = gate_func(card) if callable(gate_func) else "Gate Not Callable"
+                        if not callable(gate_func):
+                            logger.critical(f"[GATE_ERR] UID={uid} Gate function for {gate_name} is not callable: {gate_func}")
+                            session.stop = True
+                            bot_instance.send_message(chat_id, f"<b>⚠️ CHECK STOPPED - INVALID GATE FUNCTION</b>", parse_mode="HTML")
+                            break
+
+                        response = gate_func(card)
                         r_text = str(response) if response else "Empty Response"
-                        if r_text and "error" not in r_text.lower(): break
+
+                        # نجح الفحص، نخرج من Retry
+                        if r_text and "error" not in r_text.lower():
+                            break
+
                     except Exception as gate_err:
                         r_text = f"Gate Exception: {str(gate_err)}"
                         logger.error(f"[GATE_ERR] UID={uid} Card={card} Err={gate_err}")
+
                     time.sleep(1)
+
             except Exception as e:
                 r_text = f"Critical Gate Error: {str(e)}"
                 logger.critical(f"[CRITICAL] UID={uid} Card={card} Err={e}")
