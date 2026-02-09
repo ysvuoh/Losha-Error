@@ -25,7 +25,6 @@ from collections import defaultdict
 from threading import Lock
 
 # ================= Logging Setup =================
-# سيتم إنشاء ملف باسم checker.log لتسجيل كل ما يحدث
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -69,6 +68,7 @@ class ComboSession:
         self.funds_cards = []
         self.lock = Lock()
 
+# تأكد من أن GATES تحتوي على الدوال الفعلية وليس نصوصاً
 GATES = {
     "stripe_auth": ("Stripe_Auth", stripe_auth_check, "AUTH"),
     "braintree_auth": ("Braintree_Auth", braintree_auth_check, "AUTH"),
@@ -145,6 +145,10 @@ def register_combo(bot):
             bot.answer_callback_query(c.id, "A check is already running or session expired.", show_alert=True)
             return
 
+        if gate_key not in GATES:
+            bot.answer_callback_query(c.id, "Invalid Gateway selected.", show_alert=True)
+            return
+
         gate_name, gate_func, gate_type = GATES[gate_key]
         total_limit = len(session.cards) if is_admin(uid) else get_limit(gate_key)
         cost = get_cost(gate_key)
@@ -194,7 +198,6 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                 logger.info(f"Check stopped for user {uid} at card {i}.")
                 break
 
-            # Check credits
             current_credits = get_credits(uid)
             if not is_admin(uid) and current_credits < cost:
                 session.stop = True
@@ -202,14 +205,18 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                 bot_instance.send_message(chat_id, "<b>⚠️ CHECK STOPPED - INSUFFICIENT CREDITS</b>", parse_mode="HTML")
                 break
 
-            # --- Gate Calling with Error Handling & Logging ---
             r_text = "Unknown Error"
             try:
                 for attempt in range(MAX_RETRY):
                     try:
-                        # استدعاء البوابة مع محاولة الإمساك بأي خطأ داخلها
-                        response = gate_func(card)
-                        r_text = str(response) if response else "Empty Response"
+                        # التأكد من أن gate_func هي دالة قابلة للاستدعاء
+                        if callable(gate_func):
+                            response = gate_func(card)
+                            r_text = str(response) if response else "Empty Response"
+                        else:
+                            r_text = f"Internal Error: {gate_name} function not found"
+                            logger.error(f"Gate function for {gate_name} is not callable: {type(gate_func)}")
+                            break
                         
                         if r_text and "error" not in r_text.lower():
                             break
@@ -223,7 +230,6 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                 r_text = f"Critical Gate Error: {str(e)}"
                 logger.critical(f"Critical error in run_check loop for card {card}: {e}")
 
-            # --- Classification ---
             try:
                 status = classify_result(r_text)
             except Exception as e:
@@ -254,7 +260,6 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
 
                 session.checked += 1
 
-            # Send messages
             if message_to_send:
                 try:
                     bot_instance.send_message(chat_id, message_to_send, parse_mode="HTML")
@@ -262,7 +267,6 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                 except Exception as e:
                     logger.error(f"Error sending hit message for user {uid}: {e}")
 
-            # Deduct credits
             if not is_admin(uid) and "error" not in r_text.lower():
                 try:
                     with user_locks[uid]:
@@ -270,7 +274,6 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                 except Exception as e:
                     logger.error(f"Failed to deduct credits for user {uid}: {e}")
 
-            # Update UI every 2 seconds
             if time.time() - last_update_time >= 2:
                 last_update_time = time.time()
                 update_progress_ui(uid, chat_id, message_id, card, r_text, gate_name, total, gate_type)
