@@ -4,19 +4,17 @@ def classify_result(text: str):
 
     t = text.lower()
 
-    # 1️⃣ Hard Declines (HIGHEST priority)
+    # 1️⃣ Hard Declines
     hard_declines = [
         "do not honor",
         "card declined",
         "declined",
-        "not approved",
         "approval failed",
         "approval declined",
         "status: declined",
         "transaction declined",
         "payment declined"
     ]
-
     if any(x in t for x in hard_declines):
         return "DECLINED"
 
@@ -27,11 +25,10 @@ def classify_result(text: str):
         "not enough funds",
         "balance too low"
     ]
-
     if any(x in t for x in funds):
         return "FUNDS"
 
-    # 3️⃣ Charged (ONLY real charge indicators)
+    # 3️⃣ Charged
     charged = [
         "charged",
         "charge succeeded",
@@ -40,7 +37,6 @@ def classify_result(text: str):
         "payment completed",
         "transaction completed"
     ]
-
     if any(x in t for x in charged):
         return "CHARGED"
 
@@ -54,7 +50,6 @@ def classify_result(text: str):
         "status: approved",
         "1000: approved"
     ]
-
     if any(x in t for x in approved):
         return "APPROVED"
 
@@ -64,9 +59,11 @@ def classify_result(text: str):
         "review",
         "verification required",
         "3d secure",
-        "authentication required"
+        "authentication required",
+        "order_not_approved",
+        "duplicate card exists",
+        "approved (cvv)"
     ]
-
     if any(x in t for x in risk):
         return "RISK"
 
