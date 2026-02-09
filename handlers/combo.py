@@ -19,7 +19,8 @@ from utils.messages import (
     insufficient_funds_message,
     hit_detected_message,
     get_user_name,
-    dato
+    dato,  # تم تعريفه مسبقًا في utils.messages
+    declined_message  # تم إضافته
 )
 from collections import defaultdict
 from threading import Lock
@@ -143,7 +144,6 @@ def register_combo(bot):
             bot.answer_callback_query(c.id, "Invalid Gateway selected.", show_alert=True)
             return
 
-        # <<< إضافة صف الرصيد للتأكد من وجوده
         ensure_row(uid)
 
         gate_info = AVAILABLE_GATES[gate_key]
@@ -160,8 +160,6 @@ def register_combo(bot):
         session.checking = True
         session.stop = False
         logger.info(f"[START] UID={uid} GATE={gate_info['name']} TOTAL={total} CARDS={len(session.cards)}")
-        
-
 
         chat_id = c.message.chat.id
         message_id = c.message.message_id
@@ -183,6 +181,7 @@ def register_combo(bot):
 
         executor.submit(run_check, uid, chat_id, message_id, gate_key, total, cost, user_name)
 
+
 # ==================== Run Check Function ====================
 def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
     session = sessions.get(uid)
@@ -201,97 +200,104 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
     
     try:
         for i, card in enumerate(session.cards):
-            if session.stop:
-                logger.info(f"[STOP] UID={uid} at card {i}")
-                break
-
-            # التأكد من رصيد المستخدم
-            current_credits = get_credits(uid)
-            if not is_admin(uid) and current_credits < cost:
-                session.stop = True
-                bot_instance.send_message(chat_id, "<b>⚠️ CHECK STOPPED - INSUFFICIENT CREDITS</b>", parse_mode="HTML")
-                continue
-
-            r_text = "Unknown Error"
-            start_time = time.time()
-
-            # ---- محاولة الفحص مع Retry ----
-            for attempt in range(MAX_RETRY):
-                try:
-                    response = gate_func(card)
-                    r_text = str(response) if response else "Empty Response"
-                    if r_text and "error" not in r_text.lower():
-                        break
-                except Exception as gate_err:
-                    r_text = f"Gate Exception: {str(gate_err)}"
-                    logger.error(f"[GATE_ERR] UID={uid} Card={card} Err={gate_err}")
-                time.sleep(1)
-
-            # ---- تصنيف النتيجة ----
             try:
-                status = classify_result(r_text)
-            except Exception as e:
-                logger.error(f"[CLASSIFY] UID={uid} Card={card} Err={e}")
-                status = "DECLINED"
+                if session.stop:
+                    logger.info(f"[STOP] UID={uid} at card {i}")
+                    break
 
-            # ---- تجهيز الرسائل حسب الحالة ----
-            message_to_send = None
-            hit_type = None
-            execution_time = time.time() - start_time
-
-            with session.lock:
-                if status == "CHARGED":
-                    session.charged += 1
-                    session.charged_cards.append(card)
-                    message_to_send = charged_message(card, r_text, gate_name, execution_time, dato, checked_by_text=user_name)
-                    hit_type = "charged"
-
-                elif status == "APPROVED":
-                    session.approved += 1
-                    session.approved_cards.append(card)
-                    message_to_send = approved_message(card, r_text, gate_name, execution_time, dato, checked_by_text=user_name)
-                    hit_type = "approved"
-
-                elif status == "FUNDS":
-                    session.funds += 1
-                    session.funds_cards.append(card)
-                    message_to_send = insufficient_funds_message(card, r_text, gate_name, execution_time, dato, checked_by_text=user_name)
-                    hit_type = "funds"
-
-                else:
+                # التأكد من رصيد المستخدم
+                current_credits = get_credits(uid)
+                if not is_admin(uid) and current_credits < cost:
                     session.declined += 1
-                    message_to_send = declined_message(card, r_text, gate_name, execution_time, dato, checked_by_text=user_name)
-                    hit_type = "declined"
+                    session.checked += 1
+                    continue
 
-                session.checked += 1
+                r_text = "Unknown Error"
+                start_time = time.time()
 
-            # ---- إرسال الرسائل ----
-            if message_to_send:
+                # ---- محاولة الفحص مع Retry ----
+                for attempt in range(MAX_RETRY):
+                    try:
+                        response = gate_func(card)
+                        r_text = str(response) if response else "Empty Response"
+                        if r_text and "error" not in r_text.lower():
+                            break
+                    except Exception as gate_err:
+                        r_text = f"Gate Exception: {str(gate_err)}"
+                        logger.error(f"[GATE_ERR] UID={uid} Card={card} Err={gate_err}")
+                    time.sleep(1)
+
+                # ---- تصنيف النتيجة ----
                 try:
-                    bot_instance.send_message(chat_id, message_to_send, parse_mode="HTML")
+                    status = classify_result(r_text)
                 except Exception as e:
-                    logger.error(f"[SEND_ERR] UID={uid} Err={e}")
+                    logger.error(f"[CLASSIFY] UID={uid} Card={card} Err={e}")
+                    status = "DECLINED"
 
-                # HIT_CHAT للإعلام بالنجاحات
-                try:
-                    if hit_type in ["approved", "charged", "funds"]:
-                        bot_instance.send_message(HIT_CHAT, hit_detected_message(user_name, hit_type, execution_time, gate_name, checked_by_text=user_name), parse_mode="HTML")
-                except Exception as e:
-                    logger.error(f"[HIT_CHAT_ERR] UID={uid} Err={e}")
+                # ---- تجهيز الرسائل حسب الحالة ----
+                message_to_send = None
+                hit_type = None
+                execution_time = time.time() - start_time
 
-            # ---- خصم الرصيد ----
-            if not is_admin(uid) and "error" not in r_text.lower():
-                try:
-                    with user_locks[uid]:
-                        deduct_credits(uid, cost)
-                        logger.info(f"[CREDITS] UID={uid} -{cost} Remaining={get_credits(uid)}")
-                except Exception as e:
-                    logger.error(f"[DEDUCT_ERR] UID={uid} Err={e}")
+                with session.lock:
+                    if status == "CHARGED":
+                        session.charged += 1
+                        session.charged_cards.append(card)
+                        message_to_send = charged_message(card, r_text, gate_name, execution_time, dato, checked_by_text=user_name)
+                        hit_type = "charged"
 
-            # ---- تحديث واجهة التقدم كل 5 ثواني ----
-            if time.time() - last_update_time >= 5:
-                last_update_time = time.time()
-                update_progress_ui(uid, chat_id, message_id, card, r_text, gate_name, total, gate_type)
+                    elif status == "APPROVED":
+                        session.approved += 1
+                        session.approved_cards.append(card)
+                        message_to_send = approved_message(card, r_text, gate_name, execution_time, dato, checked_by_text=user_name)
+                        hit_type = "approved"
+
+                    elif status == "FUNDS":
+                        session.funds += 1
+                        session.funds_cards.append(card)
+                        message_to_send = insufficient_funds_message(card, r_text, gate_name, execution_time, dato, checked_by_text=user_name)
+                        hit_type = "funds"
+
+                    else:
+                        session.declined += 1
+                        message_to_send = declined_message(card, r_text, gate_name, execution_time, dato, checked_by_text=user_name)
+                        hit_type = "declined"
+
+                    session.checked += 1
+
+                # ---- إرسال الرسائل ----
+                if message_to_send:
+                    try:
+                        bot_instance.send_message(chat_id, message_to_send, parse_mode="HTML")
+                    except Exception as e:
+                        logger.error(f"[SEND_ERR] UID={uid} Err={e}")
+
+                    # HIT_CHAT للإعلام بالنجاحات
+                    try:
+                        if hit_type in ["approved", "charged", "funds"]:
+                            bot_instance.send_message(HIT_CHAT, hit_detected_message(user_name, hit_type, execution_time, gate_name, checked_by_text=user_name), parse_mode="HTML")
+                    except Exception as e:
+                        logger.error(f"[HIT_CHAT_ERR] UID={uid} Err={e}")
+
+                # ---- خصم الرصيد ----
+                if not is_admin(uid) and "error" not in r_text.lower():
+                    try:
+                        with user_locks[uid]:
+                            deduct_credits(uid, cost)
+                            logger.info(f"[CREDITS] UID={uid} -{cost} Remaining={get_credits(uid)}")
+                    except Exception as e:
+                        logger.error(f"[DEDUCT_ERR] UID={uid} Err={e}")
+
+                # ---- تحديث واجهة التقدم كل 5 ثواني ----
+                if time.time() - last_update_time >= 5:
+                    last_update_time = time.time()
+                    update_progress_ui(uid, chat_id, message_id, card, r_text, gate_name, total, gate_type)
+
+            except Exception as card_err:
+                logger.error(f"[CARD_ERR] UID={uid} Card={card} Err={card_err}")
+                with session.lock:
+                    session.declined += 1
+                    session.checked += 1
 
     except Exception as global_err:
         logger.critical(f"[RUN_CHECK_GLOBAL] UID={uid} Err={global_err}")
@@ -314,49 +320,3 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
             send_result_files(uid, chat_id)
         except Exception as e:
             logger.error(f"[SUMMARY_ERR] UID={uid} Err={e}")
-
-# ==================== Progress UI ====================
-def update_progress_ui(uid, chat_id, message_id, card, status, gate_name, total, gate_type, force_update=False):
-    session = sessions.get(uid)
-    if not session: return
-
-    percent = int((session.checked / total) * 100) if total > 0 else 0
-
-    kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(
-        types.InlineKeyboardButton(f"━ 𝗖𝗖 • {card}", callback_data="x"),
-        types.InlineKeyboardButton(f"━ 𝗦𝗧𝗔𝗧𝗨𝗦 • {status}", callback_data="x"),
-        types.InlineKeyboardButton(f"━ {'𝗔𝗣𝗣𝗥𝗢𝗩𝗘𝗗 ✅' if gate_type == 'AUTH' else '𝗖𝗛𝗔𝗥𝗚𝗘𝗗 ⚡'} • {session.approved if gate_type == 'AUTH' else session.charged}", callback_data="x"),
-        types.InlineKeyboardButton(f"━ {'𝗗𝗘𝗖𝗟𝗜𝗡𝗘𝗗 ❌' if gate_type == 'AUTH' else '𝗙𝗨𝗡𝗗𝗦 💸'} • {session.declined if gate_type == 'AUTH' else session.funds}", callback_data="x"),
-        types.InlineKeyboardButton(f"━ 𝗧𝗢𝗧𝗔𝗟 ⚡ • {session.checked} / {total}", callback_data="x"),
-        types.InlineKeyboardButton("⛔ 𝗦𝗧𝗢𝗣 𝗖𝗛𝗘𝗖𝗞", callback_data="combo:stop"),
-    )
-
-    try:
-        bot_instance.edit_message_text(
-            f"<b>PLEASE WAIT CHECKING YOUR CARDS 💫\nGATE ➜ {gate_name}\n\n━━━━━━━━━━━━━━━━━━━━━━━\n{build_progress(percent)}\n━━━━━━━━━━━━━━━━━━━━━━━</b>",
-            chat_id, message_id, reply_markup=kb, parse_mode="HTML"
-        )
-    except Exception:
-        pass
-
-# ==================== Send Result Files ====================
-def send_result_files(uid, chat_id):
-    session = sessions.get(uid)
-    if not session: return
-
-    files_to_send = [
-        (session.approved_cards, "Approved.txt"),
-        (session.charged_cards, "Charged.txt"),
-        (session.funds_cards, "Funds.txt")
-    ]
-
-    for cards, filename in files_to_send:
-        if cards:
-            try:
-                content = "\n".join(cards)
-                bio = io.BytesIO(content.encode())
-                bio.name = filename
-                bot_instance.send_document(chat_id, bio)
-            except Exception as e:
-                logger.error(f"[SEND_FILE_ERR] UID={uid} File={filename} Err={e}")
