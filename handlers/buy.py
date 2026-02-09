@@ -64,13 +64,11 @@ def register_buy(bot):
             )
             return            
             
-        if not is_channel_subscribed(bot, user_id):
-            send_channel_prompt(bot, message.chat.id, name)
-            return
+
             
         packages = get_packages()
         if not packages:
-            bot.send_message(message.chat.id, "❌ No packages available.")
+            bot.send_message(message.chat.id, "❌ No packages available contact with @I_EOR or @H_Eor to buy credits.")
             return
 
         kb = types.InlineKeyboardMarkup(row_width=1)
