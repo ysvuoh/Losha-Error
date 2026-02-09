@@ -158,7 +158,9 @@ def register_combo(bot):
 
         session.checking = True
         session.stop = False
-        logger.info(f"[START] UID={uid} GATE={gate_info['name']} TOTAL={total}")
+        logger.info(f"[START] UID={uid} GATE={gate_info['name']} TOTAL={total} CARDS={len(session.cards)}")
+        
+        logger.info(f"[CHECK] UID={uid} Card {i+1}/{total} Status={status}")
 
         chat_id = c.message.chat.id
         message_id = c.message.message_id
@@ -216,9 +218,8 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                     try:
                         if not callable(gate_func):
                             logger.critical(f"[GATE_ERR] UID={uid} Gate function for {gate_name} is not callable: {gate_func}")
-                            session.stop = True
-                            bot_instance.send_message(chat_id, f"<b>⚠️ CHECK STOPPED - INVALID GATE FUNCTION</b>", parse_mode="HTML")
-                            break
+                            bot_instance.send_message(chat_id, "<b>⚠️ CHECK STOPPED - INVALID GATE FUNCTION</b>", parse_mode="HTML")
+                            return  # << توقف فورًا كل الفحص
 
                         response = gate_func(card)
                         r_text = str(response) if response else "Empty Response"
@@ -250,30 +251,27 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                 if status == "CHARGED":
                     session.charged += 1
                     session.charged_cards.append(card)
-                    message_to_send = charged_message(card, r_text, gate_name, 0, user_name)
-                    hit_type = "charged"
                 elif status == "APPROVED":
                     session.approved += 1
                     session.approved_cards.append(card)
-                    message_to_send = approved_message(card, r_text, gate_name, 0, user_name)
-                    hit_type = "approved"
                 elif status == "FUNDS":
                     session.funds += 1
                     session.funds_cards.append(card)
-                    message_to_send = insufficient_funds_message(card, r_text, gate_name, 0, user_name)
-                    hit_type = "funds"
                 else:
                     session.declined += 1
-
                 session.checked += 1
 
             if message_to_send:
                 try:
                     bot_instance.send_message(chat_id, message_to_send, parse_mode="HTML")
-                    bot_instance.send_message(HIT_CHAT, hit_detected_message(user_name, hit_type, 0, gate_name), parse_mode="HTML")
                 except Exception as e:
                     logger.error(f"[SEND_ERR] UID={uid} Err={e}")
-
+                
+                try:
+                    bot_instance.send_message(HIT_CHAT, hit_detected_message(user_name, hit_type, 0, gate_name), parse_mode="HTML")
+                except Exception as e:
+                    logger.error(f"[HIT_CHAT_ERR] UID={uid} Err={e}")
+                
             if not is_admin(uid) and "error" not in r_text.lower():
                 try:
                     with user_locks[uid]:
@@ -282,7 +280,7 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                 except Exception as e:
                     logger.error(f"[DEDUCT_ERR] UID={uid} Err={e}")
 
-            if time.time() - last_update_time >= 2:
+            if time.time() - last_update_time >= 5:
                 last_update_time = time.time()
                 update_progress_ui(uid, chat_id, message_id, card, r_text, gate_name, total, gate_type)
 
