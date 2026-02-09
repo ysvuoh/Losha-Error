@@ -5,6 +5,7 @@ import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
 from telebot import types
 from utils.admin_guard import is_admin
+from utils.classify.py import *
 from storage.repositories.bans import is_banned
 from security.channel_guard import *
 from storage.repositories.credits import *
@@ -224,26 +225,33 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
             message_to_send = None
             hit_type = None
 
+# ... (الكود الجديد داخل دالة run_check) ...
+            result_status = classify_result(r_text) # استخدم الدالة الجديدة للتصنيف
+            
+            message_to_send = None
+            hit_type = None
+
             with session.lock:
-                if "charged" in r_lower:
+                if result_status == "CHARGED":
                     session.charged += 1
                     session.charged_cards.append(card)
                     message_to_send = charged_message(card, r_text, gate_name, exec_time, dato)
                     hit_type = "charged"
-                elif "approved" in r_lower:
+                elif result_status == "APPROVED":
                     session.approved += 1
                     session.approved_cards.append(card)
                     message_to_send = approved_message(card, r_text, gate_name, exec_time, dato)
                     hit_type = "approved"
-                elif "fund" in r_lower:
+                elif result_status == "FUNDS":
                     session.funds += 1
                     session.funds_cards.append(card)
                     message_to_send = insufficient_funds_message(card, r_text, gate_name, exec_time, dato)
                     hit_type = "funds"
-                else:
+                else: # Declined
                     session.declined += 1
                 
                 session.checked += 1
+
 
             if message_to_send:
                 try:
