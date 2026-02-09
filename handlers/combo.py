@@ -7,7 +7,7 @@ from telebot import types
 from utils.admin_guard import is_admin
 from storage.repositories.bans import is_banned
 from security.channel_guard import is_channel_subscribed, send_channel_prompt
-from storage.repositories.credits import get_credits, ensure_row, is_vip_active, deduct_credits
+from storage.repositories.credits import get_credits, ensure_row, deduct_credits
 from storage.repositories.gates import is_gate_enabled, get_limit, get_cost
 from datetime import datetime
 from config.settings import ADMIN_GROUP, HIT_CHAT
@@ -202,7 +202,7 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
             if session.stop: break
 
             current_credits = get_credits(uid)
-            if not is_admin(uid) and not is_vip_active(uid) and current_credits < cost:
+            if not is_admin(uid) and current_credits < cost:
                 session.stop = True
                 try:
                     bot_instance.send_message(chat_id, "<b>⚠️ CHECK STOPPED - INSUFFICIENT CREDITS</b>", parse_mode="HTML")
@@ -256,7 +256,7 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                 except Exception as e:
                     print(f"Error sending hit message: {e}")
 
-            if not is_admin(uid) and not is_vip_active(uid) and "error" not in r_text.lower():
+            if not is_admin(uid) and "error" not in r_text.lower():
                 with user_locks[uid]:
                     deduct_credits(uid, cost)
 
@@ -279,9 +279,7 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                        f"━━━━━━━━━━━━━━━━━━"
         try:
             bot_instance.send_message(chat_id, summary_text, parse_mode="HTML")
-            # Send result files if any hits
-            if session.approved_cards or session.charged_cards or session.funds_cards:
-                send_result_files(uid, chat_id)
+            send_result_files(uid, chat_id)
         except: pass
 
 def update_progress_ui(uid, chat_id, message_id, card, status, gate_name, total, gate_type, force_update=False):
