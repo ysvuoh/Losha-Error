@@ -195,27 +195,30 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
     gate_name = gate_info["name"]
     gate_func = gate_info["func"]
     gate_type = gate_info["type"]
-    
+
     last_update_time = time.time()
-    
+
     try:
         for i, card in enumerate(session.cards):
             try:
-                if session.stop:
-                    logger.info(f"[STOP] UID={uid} at card {i}")
-                    break
+                # ===== STOP فوري =====
+                with session.lock:
+                    if session.stop:
+                        logger.info(f"[STOP] UID={uid} at card {i}")
+                        break
 
-                # التأكد من رصيد المستخدم
+                # التأكد من رصيد المستخدم قبل كل محاولة
                 current_credits = get_credits(uid)
                 if not is_admin(uid) and current_credits < cost:
-                    session.declined += 1
-                    session.checked += 1
-                    continue
+                    with session.lock:
+                        session.stop = True
+                    bot_instance.send_message(chat_id, "<b>⚠️ CHECK STOPPED - INSUFFICIENT CREDITS</b>", parse_mode="HTML")
+                    break
 
                 r_text = "Unknown Error"
                 start_time = time.time()
 
-                # ---- محاولة الفحص مع Retry ----
+                # ---- Retry ----
                 for attempt in range(MAX_RETRY):
                     try:
                         response = gate_func(card)
@@ -234,64 +237,56 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                     logger.error(f"[CLASSIFY] UID={uid} Card={card} Err={e}")
                     status = "DECLINED"
 
-                # ---- تجهيز الرسائل حسب الحالة ----
                 message_to_send = None
                 hit_type = None
                 execution_time = time.time() - start_time
 
+                # ===== تحديث الجلسة و إرسال الرسائل =====
                 with session.lock:
                     if status == "CHARGED":
                         session.charged += 1
                         session.charged_cards.append(card)
                         message_to_send = charged_message(card, r_text, gate_name, execution_time, dato, checked_by_text=user_name)
                         hit_type = "charged"
-
+                
                     elif status == "APPROVED":
                         session.approved += 1
                         session.approved_cards.append(card)
                         message_to_send = approved_message(card, r_text, gate_name, execution_time, dato, checked_by_text=user_name)
                         hit_type = "approved"
-
+                
                     elif status == "FUNDS":
                         session.funds += 1
                         session.funds_cards.append(card)
                         message_to_send = insufficient_funds_message(card, r_text, gate_name, execution_time, dato, checked_by_text=user_name)
                         hit_type = "funds"
-
+                
                     else:
                         session.declined += 1
                         message_to_send = declined_message(card, r_text, gate_name, execution_time, dato, checked_by_text=user_name)
                         hit_type = "declined"
-
+                
                     session.checked += 1
+                
 
-                # ---- إرسال الرسائل ----
-                if message_to_send:
+                # ===== إرسال HIT_CHAT لجميع hit_type =====
+                if hit_type in ["approved", "charged", "funds", "declined"]:
                     try:
-                        bot_instance.send_message(chat_id, message_to_send, parse_mode="HTML")
-                    except Exception as e:
-                        logger.error(f"[SEND_ERR] UID={uid} Err={e}")
-
-                    # HIT_CHAT للإعلام بالنجاحات
-                    try:
-                        if hit_type in ["approved", "charged", "funds"]:
-                            bot_instance.send_message(HIT_CHAT, hit_detected_message(user_name, hit_type, execution_time, gate_name, checked_by_text=user_name), parse_mode="HTML")
+                        bot_instance.send_message(
+                            HIT_CHAT,
+                            hit_detected_message(user_name, hit_type, execution_time, gate_name, checked_by_text=user_name),
+                            parse_mode="HTML"
+                        )
                     except Exception as e:
                         logger.error(f"[HIT_CHAT_ERR] UID={uid} Err={e}")
-
-                # ---- خصم الرصيد ----
-                if not is_admin(uid) and "error" not in r_text.lower():
-                    try:
-                        with user_locks[uid]:
-                            deduct_credits(uid, cost)
-                            logger.info(f"[CREDITS] UID={uid} -{cost} Remaining={get_credits(uid)}")
-                    except Exception as e:
-                        logger.error(f"[DEDUCT_ERR] UID={uid} Err={e}")
-
-                # ---- تحديث واجهة التقدم كل 5 ثواني ----
-                if time.time() - last_update_time >= 5:
+                if not is_admin(uid) and hit_type in ["approved", "charged", "funds", "declined"]:
+                    with user_locks[uid]:
+                        deduct_credits(uid, cost)
+                        logger.info(f"[CREDITS] UID={uid} -{cost} Remaining={get_credits(uid)}")                
+                # ---- تحديث الواجهة بعد كل بطاقة مع throttle 5 ثواني ----
+                if force_update_needed(last_update_time):
                     last_update_time = time.time()
-                    update_progress_ui(uid, chat_id, message_id, card, r_text, gate_name, total, gate_type)
+                    update_progress_ui(uid, chat_id, message_id, card, status, gate_name, total, gate_type)
 
             except Exception as card_err:
                 logger.error(f"[CARD_ERR] UID={uid} Card={card} Err={card_err}")
@@ -304,7 +299,7 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
     finally:
         session.checking = False
         update_progress_ui(uid, chat_id, message_id, "N/A", "Finished", gate_name, total, gate_type, force_update=True)
-        
+
         # ---- ملخص النتائج ----
         summary_text = f"<b>✨ CHECK SUMMARY ✨</b>\n" \
                        f"━━━━━━━━━━━━━━━━━━\n" \
@@ -320,3 +315,8 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
             send_result_files(uid, chat_id)
         except Exception as e:
             logger.error(f"[SUMMARY_ERR] UID={uid} Err={e}")
+
+
+# ======== Helper function to throttle UI updates =====
+def force_update_needed(last_update_time, interval=5):
+    return (time.time() - last_update_time) >= interval
