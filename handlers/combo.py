@@ -160,8 +160,15 @@ def register_combo(bot):
             return
 
         gate_name, gate_func, gate_type = GATES[gate_key]
-        total = len(session.cards) if is_admin(uid) else min(len(session.cards), get_limit(gate_key))
+        limit = get_limit(gate_key)
+        if limit <= 0:
+            limit = len(session.cards)
+
+        total = len(session.cards) if is_admin(uid) else min(len(session.cards), limit)
         cost = get_cost(gate_key)
+
+        # ===== DEBUG PRINT =====
+        print(f"[DEBUG] User {uid} | Gate {gate_key} | Limit {limit} | Total {total} | Cards in file {len(session.cards)}")
 
         with user_locks[uid]:
             if not is_admin(uid) and get_credits(uid) < cost * total:
