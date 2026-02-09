@@ -291,7 +291,7 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                 
                     else:
                         session.declined += 1
-                        message_to_send = None
+                        message_to_send = declined_message(card, r_text, gate_name, execution_time, dato, checked_by_text=user_name)
                         hit_type = "declined"
                 
                     session.checked += 1
