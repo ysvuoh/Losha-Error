@@ -2,6 +2,8 @@ import threading
 import time
 import io
 import multiprocessing
+import logging
+import os
 from concurrent.futures import ThreadPoolExecutor
 from telebot import types
 from utils.admin_guard import is_admin
@@ -21,6 +23,18 @@ from utils.messages import (
 )
 from collections import defaultdict
 from threading import Lock
+
+# ================= Logging Setup =================
+# سيتم إنشاء ملف باسم checker.log لتسجيل كل ما يحدث
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("checker.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # ================= Import Gates ==================
 from gates.stripe_auth import check as stripe_auth_check
@@ -78,9 +92,9 @@ def register_combo(bot):
         uid = message.from_user.id
         user = message.from_user
         user_name = user.first_name
-        now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        
+        logger.info(f"User {uid} ({user_name}) uploaded a file.")
 
-        # Security Checks
         if is_banned(uid):
             bot.send_message(message.chat.id, "<b>🚫 YOU ARE BANNED FROM USING THIS BOT</b>", parse_mode="HTML")
             return
@@ -93,7 +107,9 @@ def register_combo(bot):
             file_info = bot.get_file(message.document.file_id)
             raw = bot.download_file(file_info.file_path)
             cards = [c.strip() for c in raw.decode(errors="ignore").splitlines() if c.strip()]
+            logger.info(f"File processed: {len(cards)} cards found.")
         except Exception as e:
+            logger.error(f"Failed to process file for user {uid}: {e}")
             bot.send_message(message.chat.id, f"<b>❌ FAILED TO PROCESS FILE: {e}</b>", parse_mode="HTML")
             return
 
@@ -101,7 +117,6 @@ def register_combo(bot):
             bot.send_message(message.chat.id, "<b>❌ EMPTY FILE</b>", parse_mode="HTML")
             return
 
-        # Limit the file based on gate limits
         sessions[uid] = ComboSession(cards, message.document.file_name)
 
         kb = types.InlineKeyboardMarkup(row_width=1)
@@ -116,6 +131,7 @@ def register_combo(bot):
         uid = c.from_user.id
         if uid in sessions:
             sessions[uid].stop = True
+            logger.info(f"User {uid} requested to stop the check.")
             bot.answer_callback_query(c.id, "⛔ Stop requested")
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("combo:gate:"))
@@ -133,11 +149,9 @@ def register_combo(bot):
         total_limit = len(session.cards) if is_admin(uid) else get_limit(gate_key)
         cost = get_cost(gate_key)
 
-        # Split file if it exceeds limit
         total = min(len(session.cards), total_limit)
         session.cards = session.cards[:total]
 
-        # Check credits
         user_credits = get_credits(uid)
         if not is_admin(uid) and user_credits < cost:
             bot.answer_callback_query(c.id, f"⛔ Not enough credits ({user_credits} < {cost})", show_alert=True)
@@ -145,6 +159,7 @@ def register_combo(bot):
 
         session.checking = True
         session.stop = False
+        logger.info(f"Starting check for user {uid} on gate {gate_name}. Total cards: {total}")
 
         chat_id = c.message.chat.id
         message_id = c.message.message_id
@@ -176,34 +191,44 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
     try:
         for i, card in enumerate(session.cards):
             if session.stop:
+                logger.info(f"Check stopped for user {uid} at card {i}.")
                 break
 
             # Check credits
             current_credits = get_credits(uid)
             if not is_admin(uid) and current_credits < cost:
                 session.stop = True
+                logger.warning(f"User {uid} ran out of credits during check.")
                 bot_instance.send_message(chat_id, "<b>⚠️ CHECK STOPPED - INSUFFICIENT CREDITS</b>", parse_mode="HTML")
                 break
 
-            # Brainteer Auth fix: start immediately
-            r_text = "Network Error"
-            for _ in range(MAX_RETRY):
-                try:
-                    r_text = str(gate_func(card))
-                    if r_text and "error" not in r_text.lower():
-                        break
-                except Exception:
-                    r_text = "error"
-                time.sleep(0.5)
+            # --- Gate Calling with Error Handling & Logging ---
+            r_text = "Unknown Error"
+            try:
+                for attempt in range(MAX_RETRY):
+                    try:
+                        # استدعاء البوابة مع محاولة الإمساك بأي خطأ داخلها
+                        response = gate_func(card)
+                        r_text = str(response) if response else "Empty Response"
+                        
+                        if r_text and "error" not in r_text.lower():
+                            break
+                        else:
+                            logger.warning(f"Attempt {attempt+1} failed for card {card}: {r_text}")
+                    except Exception as gate_err:
+                        r_text = f"Gate Exception: {str(gate_err)}"
+                        logger.error(f"Exception in gate {gate_name} for card {card}: {gate_err}")
+                    time.sleep(1)
+            except Exception as e:
+                r_text = f"Critical Gate Error: {str(e)}"
+                logger.critical(f"Critical error in run_check loop for card {card}: {e}")
 
             # --- Classification ---
-            if gate_key == "paypal_donation" and "ordered not approved" in r_text.lower():
-                status = "DECLINED"
-            else:
+            try:
                 status = classify_result(r_text)
-
-            # Debug print
-            print(f"[DEBUG] card={card}, r_text={r_text}, status={status}")
+            except Exception as e:
+                logger.error(f"Classification failed for response '{r_text}': {e}")
+                status = "DECLINED"
 
             message_to_send = None
             hit_type = None
@@ -235,18 +260,23 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                     bot_instance.send_message(chat_id, message_to_send, parse_mode="HTML")
                     bot_instance.send_message(HIT_CHAT, hit_detected_message(user_name, hit_type, 0, gate_name), parse_mode="HTML")
                 except Exception as e:
-                    print(f"Error sending hit message: {e}")
+                    logger.error(f"Error sending hit message for user {uid}: {e}")
 
             # Deduct credits
             if not is_admin(uid) and "error" not in r_text.lower():
-                with user_locks[uid]:
-                    deduct_credits(uid, cost)
+                try:
+                    with user_locks[uid]:
+                        deduct_credits(uid, cost)
+                except Exception as e:
+                    logger.error(f"Failed to deduct credits for user {uid}: {e}")
 
             # Update UI every 2 seconds
             if time.time() - last_update_time >= 2:
                 last_update_time = time.time()
                 update_progress_ui(uid, chat_id, message_id, card, r_text, gate_name, total, gate_type)
 
+    except Exception as global_err:
+        logger.critical(f"Global error in run_check for user {uid}: {global_err}")
     finally:
         session.checking = False
         update_progress_ui(uid, chat_id, message_id, "N/A", "Finished", gate_name, total, gate_type, force_update=True)
@@ -262,7 +292,8 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
         try:
             bot_instance.send_message(chat_id, summary_text, parse_mode="HTML")
             send_result_files(uid, chat_id)
-        except: pass
+        except Exception as e:
+            logger.error(f"Failed to send summary/files for user {uid}: {e}")
 
 def update_progress_ui(uid, chat_id, message_id, card, status, gate_name, total, gate_type, force_update=False):
     session = sessions.get(uid)
@@ -285,26 +316,25 @@ def update_progress_ui(uid, chat_id, message_id, card, status, gate_name, total,
             f"<b>PLEASE WAIT CHECKING YOUR CARDS 💫\nGATE ➜ {gate_name}\n\n━━━━━━━━━━━━━━━━━━━━━━━\n{build_progress(percent)}\n━━━━━━━━━━━━━━━━━━━━━━━</b>",
             chat_id, message_id, reply_markup=kb, parse_mode="HTML"
         )
-    except: pass
+    except Exception:
+        pass
 
 def send_result_files(uid, chat_id):
     session = sessions.get(uid)
     if not session: return
 
-    if session.approved_cards:
-        content = "\n".join(session.approved_cards)
-        bio = io.BytesIO(content.encode())
-        bio.name = "Approved.txt"
-        bot_instance.send_document(chat_id, bio)
+    files_to_send = [
+        (session.approved_cards, "Approved.txt"),
+        (session.charged_cards, "Charged.txt"),
+        (session.funds_cards, "Funds.txt")
+    ]
 
-    if session.charged_cards:
-        content = "\n".join(session.charged_cards)
-        bio = io.BytesIO(content.encode())
-        bio.name = "Charged.txt"
-        bot_instance.send_document(chat_id, bio)
-
-    if session.funds_cards:
-        content = "\n".join(session.funds_cards)
-        bio = io.BytesIO(content.encode())
-        bio.name = "Funds.txt"
-        bot_instance.send_document(chat_id, bio)
+    for cards, filename in files_to_send:
+        if cards:
+            try:
+                content = "\n".join(cards)
+                bio = io.BytesIO(content.encode())
+                bio.name = filename
+                bot_instance.send_document(chat_id, bio)
+            except Exception as e:
+                logger.error(f"Error sending file {filename} to user {uid}: {e}")
