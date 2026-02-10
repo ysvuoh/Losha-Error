@@ -76,9 +76,6 @@ AVAILABLE_GATES = {
 
 MAX_RETRY = 3
 
-def build_progress(percent: int, size: int = 10):
-    filled = int((percent / 100) * size)
-    return f"{'▰' * filled}{'▱' * (size - filled)} {percent}%"
 # ======== Build Progress Bar ========
 def build_progress(percent: int, size: int = 10):
     filled = int((percent / 100) * size)
@@ -108,6 +105,7 @@ def update_progress_ui(uid, chat_id, message_id, card, status, gate_name, total,
         )
     except Exception:
         pass
+
 # ==================== Combo Registration ====================
 def register_combo(bot):
     global bot_instance
@@ -276,27 +274,25 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                         session.charged_cards.append(card)
                         message_to_send = charged_message(card, r_text, gate_name, execution_time, dato, checked_by_text=user_name)
                         hit_type = "charged"
-                
                     elif status == "APPROVED":
                         session.approved += 1
                         session.approved_cards.append(card)
                         message_to_send = approved_message(card, r_text, gate_name, execution_time, dato, checked_by_text=user_name)
                         hit_type = "approved"
-                
                     elif status == "FUNDS":
                         session.funds += 1
                         session.funds_cards.append(card)
                         message_to_send = insufficient_funds_message(card, r_text, gate_name, execution_time, dato, checked_by_text=user_name)
                         hit_type = "funds"
-                
                     else:
                         session.declined += 1
-                        message_to_send = declined_message(card, r_text, gate_name, execution_time, dato, checked_by_text=user_name)
+                        # منع إرسال رسائل فردية للمرفوضات (Declined)
+                        message_to_send = None 
                         hit_type = "declined"
                 
                     session.checked += 1
 
-                # ===== إرسال رسائل الكارت الفردية =====
+                # ===== إرسال رسائل الكارت الفردية (فقط للـ Hits) =====
                 if message_to_send:
                     try:
                         bot_instance.send_message(chat_id, message_to_send, parse_mode="HTML")
@@ -314,16 +310,17 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                     except Exception as e:
                         logger.error(f"[HIT_CHAT_ERR] UID={uid} Err={e}")
 
-                # ===== خصم الكريدتس فقط للـ Charged و Funds =====
+                # ===== خصم الكريدتس =====
                 if not is_admin(uid) and hit_type in ["approved", "charged", "funds", "declined"]:
                     with user_locks[uid]:
                         deduct_credits(uid, cost)
                         logger.info(f"[CREDITS] UID={uid} -{cost} Remaining={get_credits(uid)}")
 
-                # ---- تحديث الواجهة بعد كل بطاقة مع throttle 5 ثواني ----
+                # ---- تحديث الواجهة: عرض رد البوابة الخام (r_text) في زر الحالة ----
+                # نستخدم r_text مباشرة هنا لضمان ظهور "Your card was declined" أو أي رد آخر من البوابة
                 if force_update_needed(last_update_time):
                     last_update_time = time.time()
-                    update_progress_ui(uid, chat_id, message_id, card, status, gate_name, total, gate_type)
+                    update_progress_ui(uid, chat_id, message_id, card, r_text, gate_name, total, gate_type)
 
             except Exception as card_err:
                 logger.error(f"[CARD_ERR] UID={uid} Card={card} Err={card_err}")
@@ -351,7 +348,6 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
         )
         try:
             bot_instance.send_message(chat_id, summary_text, parse_mode="HTML")
-            send_result_files(uid, chat_id)
         except Exception as e:
             logger.error(f"[SUMMARY_ERR] UID={uid} Err={e}")
 
