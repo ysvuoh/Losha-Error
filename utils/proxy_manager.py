@@ -177,7 +177,7 @@ def patched_request(self, *args, **kwargs):
 # تفعيل النظام
 # =========================
 
-def activate_proxy_system():
+def activate_proxy_patching():
     if not ACTIVE_PROXIES:
         print("لا يوجد بروكسيات نشطة.")
         return
