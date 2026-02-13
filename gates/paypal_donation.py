@@ -19,8 +19,8 @@ def paypal(ccx):
 	    'user-agent': user,
 	}
 	            
-	url = 'https://lightwithoutborders.org.es'
-	donation_page = 'https://lightwithoutborders.org.es/make-a-donation/'	
+	url = 'https://icnacalgary.com'
+	donation_page = 'https://icnacalgary.com/donations/give-your-sadaqah-to-the-poor-through-icna/'
 	response = r.get(donation_page, cookies=r.cookies, headers=headers)
 	id_form1 = re.search(r'name="give-form-id-prefix" value="(.*?)"', response.text).group(1)
 	id_form2 = re.search(r'name="give-form-id" value="(.*?)"', response.text).group(1)
