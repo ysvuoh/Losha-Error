@@ -140,7 +140,7 @@ def main():
     load_and_clean_proxies()
 
     # ---- START BOT ----
-    os.environ["BOT_TOKEN"] = "7647806641:AAGMNr-2TfrwtcvNFvi8Ds6iY5quBZStl80"
+    os.environ["BOT_TOKEN"] = "8551333637:AAFjU3pH8Rv_xZuOtlrmovrZHM9FyduOrII"
     bot_instance = startup()
     
     logger.info("Bot is running...")
