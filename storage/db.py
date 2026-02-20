@@ -26,6 +26,15 @@ def init_db():
         )
         """)
 
+        # ===== VIP STATUS =====
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS vip_status (
+            user_id INTEGER PRIMARY KEY,
+            expires_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+        """)
+
         # ===== CREDITS =====
         cur.execute("""
         CREATE TABLE IF NOT EXISTS credits (
@@ -36,7 +45,6 @@ def init_db():
         """)
 
         # ===== SESSIONS =====
-        # تم تحديث جدول الجلسات لدعم حفظ حالة الفحص للاستئناف
         cur.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
             user_id INTEGER PRIMARY KEY,
