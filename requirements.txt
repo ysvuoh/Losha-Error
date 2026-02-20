@@ -1,0 +1,8 @@
+pyTelegramBotAPI==4.15.4
+python-dotenv==1.0.1
+requests
+user-agent
+cloudscraper
+requests-toolbelt
+faker
+PyJWT
