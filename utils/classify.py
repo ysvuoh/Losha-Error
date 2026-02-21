@@ -5,7 +5,7 @@ def classify_result(text: str):
     # تنظيف النص: تحويل لصغير، إزالة المسافات الزائدة
     t = text.lower().strip()
 
-    # 1️⃣ المطابقة الدقيقة للرفض (Hard Declines)
+    # 1️⃣ المطابقة الدقيقة للرفض (Hard Declines) - تم التحديث هنا
     hard_declines_exact = [
         "declined",
         "card declined",
@@ -14,7 +14,7 @@ def classify_result(text: str):
         "payment declined",
         "status: declined",
         "approval failed",
-        "order_not_approved" # حالة باي بال أصبحت رفضاً هنا
+        "order_not_approved" # ✅ تم إضافتها هنا لضمان المعالجة الفورية
     ]
     if t in hard_declines_exact:
         return "DECLINED"
@@ -63,7 +63,6 @@ def classify_result(text: str):
         return "RISK"
 
     # 6️⃣ منطق البحث الجزئي الذكي (Fallback)
-    # إذا لم يطابق النص بالكامل، نبحث عن كلمات مفتاحية مع استثناءات
     if "insufficient funds" in t:
         return "FUNDS"
     if "approved" in t and "not approved" not in t: 
@@ -75,3 +74,4 @@ def classify_result(text: str):
 
     # 7️⃣ الحالة الافتراضية
     return "UNKNOWN"
+
