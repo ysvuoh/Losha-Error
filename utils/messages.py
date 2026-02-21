@@ -28,6 +28,9 @@ def clean_response(response):
     if res_str in technical_names:
         return "N/A"
     
+    # Remove amounts like $1.00, 1.00$, 1.00 USD, etc.
+    res_str = re.sub(r'\$?\d+(\.\d+)?\s?(USD|EUR|GBP|\$)?', '', res_str, flags=re.IGNORECASE)
+    
     # Clean up extra characters
     res_str = res_str.strip(" ,()[]'\"")
     

