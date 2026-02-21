@@ -8,7 +8,7 @@ from core.bot import create_bot
 from handlers import register_all
 from storage.db import init_db
 from storage.repositories.gates import init_gates
-from handlers.combo import resume_all_sessions
+
 
 # =========================
 # ENV LOADING & VALIDATION
