@@ -1,12 +1,12 @@
+import requests,base64
+import re
+import time
+import random
+import subprocess
+from user_agent import generate_user_agent
+from requests_toolbelt.multipart.encoder import MultipartEncoder
 def paypal1(ccx):#@I_EOR
-	import requests,base64
 	r=requests.Session()
-	import re
-	import time
-	import random
-	import subprocess
-	from user_agent import generate_user_agent
-	from requests_toolbelt.multipart.encoder import MultipartEncoder
 	user=generate_user_agent()
 	ccx=ccx.strip()
 	n = ccx.split("|")[0]
@@ -295,16 +295,15 @@ def paypal1(ccx):#@I_EOR
 
 
 
-
+import requests,base64
+import re
+import time
+import random
+import subprocess
+from user_agent import generate_user_agent
+from requests_toolbelt.multipart.encoder import MultipartEncoder
 def paypal2(ccx):#@I_EOR
-	import requests,base64
 	r=requests.Session()
-	import re
-	import time
-	import random
-	import subprocess
-	from user_agent import generate_user_agent
-	from requests_toolbelt.multipart.encoder import MultipartEncoder
 	user=generate_user_agent()
 	ccx=ccx.strip()
 	n = ccx.split("|")[0]
