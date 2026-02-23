@@ -3,6 +3,7 @@ def paypal1(ccx):#@I_EOR
 	r=requests.Session()
 	import re
 	import time
+	import random
 	import subprocess
 	from user_agent import generate_user_agent
 	from requests_toolbelt.multipart.encoder import MultipartEncoder
@@ -300,6 +301,7 @@ def paypal2(ccx):#@I_EOR
 	r=requests.Session()
 	import re
 	import time
+	import random
 	import subprocess
 	from user_agent import generate_user_agent
 	from requests_toolbelt.multipart.encoder import MultipartEncoder
