@@ -20,8 +20,8 @@ def paypal1(ccx):#@I_EOR
 	    'user-agent': user,
 	}
 
-	base_url = "https://princessforaday.org"
-	donation_page = "https://princessforaday.org/donations/custom-donation/"
+	base_url = "https://karimashowandtell.com"
+	donation_page = "https://karimashowandtell.com/donate/"
 	amount = "0.50"            	            
 	response = r.get(donation_page, cookies=r.cookies, headers=headers)
 	id_form1 = re.search(r'name="give-form-id-prefix" value="(.*?)"', response.text).group(1)
