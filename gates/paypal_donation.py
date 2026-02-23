@@ -295,7 +295,7 @@ def paypal1(ccx):#@I_EOR
 
 
 
-import requests,base64
+"""import requests,base64
 import re
 import time
 import random
@@ -589,7 +589,7 @@ def paypal2(ccx):#@I_EOR
 			result = response.json()['data']['error']
 			return result
 		except:
-			return "UNKNOWN_ERROR"
+			return "UNKNOWN_ERROR" """
 			
 
 			
@@ -601,7 +601,7 @@ def paypal2(ccx):#@I_EOR
 
 GATES_MAP = {
     "PayPal_Charge_V1": paypal1,
-    "PayPal_Charge_V2": paypal2,
+    #"PayPal_Charge_V2": paypal2,
 }
 
 def check(card):
