@@ -318,9 +318,9 @@ def paypal2(ccx):#@I_EOR
 	}
 	
 	            
-	base_url = "https://give.gatherministries.com"
-	donation_page = "https://give.gatherministries.com/donations/eoy-2022-loop-advent-2/"
-	amount = "0.50"	                                    
+	base_url = "https://isaacssmiles.org"
+	donation_page = "https://isaacssmiles.org/donation/"
+	amount = "0.50"                                    
 	response = r.get(donation_page, cookies=r.cookies, headers=headers)
 	id_form1 = re.search(r'name="give-form-id-prefix" value="(.*?)"', response.text).group(1)
 	id_form2 = re.search(r'name="give-form-id" value="(.*?)"', response.text).group(1)
