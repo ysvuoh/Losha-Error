@@ -104,20 +104,7 @@ def startup():
         logger.exception("Bot creation failed (check BOT_TOKEN / API)")
         sys.exit(1)
 
-    # ---- REGISTER HANDLERS ----
-    try:
-        register_all(bot)
-        logger.info("Handlers registered successfully")
-    except Exception:
-        logger.exception("Handler registration failed")
-        sys.exit(1)
 
-    # ---- RESUME SESSIONS ----
-    try:
-        resume_all_sessions(bot)
-        logger.info("Active sessions resumed")
-    except Exception:
-        logger.exception("Failed to resume sessions")
 
     return bot
 
