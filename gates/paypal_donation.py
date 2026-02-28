@@ -601,7 +601,6 @@ def paypal2(ccx):#@I_EOR
 
 GATES_MAP = {
     "PayPal_Charge_V1": paypal1,
-    #"PayPal_Charge_V2": paypal2,
 }
 
 def check(card):
@@ -614,6 +613,6 @@ def check(card):
         result = f"Gateway Error"
         
     # نرجع النتيجة، اسم البوابة (للعرض)، واسم الدالة المختارة من الماب
-    return result, gate_func_name, "0.01$"
+    return result, gate_func_name, "1.00$"
 
 
