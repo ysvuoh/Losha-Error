@@ -22,7 +22,7 @@ def paypal1(ccx):#@I_EOR
 
 	base_url = "https://cincinnatifriends.org"
 	donation_page = "https://cincinnatifriends.org/donation"
-	amount = "0.50"
+	amount = "1.00"
 	response = r.get(donation_page, cookies=r.cookies, headers=headers)
 	id_form1 = re.search(r'name="give-form-id-prefix" value="(.*?)"', response.text).group(1)
 	id_form2 = re.search(r'name="give-form-id" value="(.*?)"', response.text).group(1)
