@@ -20,8 +20,8 @@ def paypal1(ccx):#@I_EOR
 	    'user-agent': user,
 	}
 
-	base_url = "https://mbiamenewvision.org"
-	donation_page = "https://mbiamenewvision.org/donations/new-donation-from/"
+	base_url = "https://folkworks.org"
+	donation_page = "https://folkworks.org/donation-form/"
 	amount = "0.50"
 	response = r.get(donation_page, cookies=r.cookies, headers=headers)
 	id_form1 = re.search(r'name="give-form-id-prefix" value="(.*?)"', response.text).group(1)
