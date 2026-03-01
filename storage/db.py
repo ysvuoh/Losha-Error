@@ -26,15 +26,6 @@ def init_db():
         )
         """)
 
-        # ===== VIP STATUS =====
-        cur.execute("""
-        CREATE TABLE IF NOT EXISTS vip_status (
-            user_id INTEGER PRIMARY KEY,
-            expires_at TEXT NOT NULL,
-            FOREIGN KEY(user_id) REFERENCES users(id)
-        )
-        """)
-
         # ===== CREDITS =====
         cur.execute("""
         CREATE TABLE IF NOT EXISTS credits (
@@ -101,6 +92,12 @@ def init_db():
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
         """)
+
+        # التأكد من وجود العمود vip_minutes وإضافته لو مش موجود
+        cur.execute("PRAGMA table_info(codes)")
+        columns = [col[1] for col in cur.fetchall()]
+        if "vip_minutes" not in columns:
+            cur.execute("ALTER TABLE codes ADD COLUMN vip_minutes INTEGER DEFAULT 0")
 
         cur.execute("""
         CREATE TABLE IF NOT EXISTS code_redeems (
