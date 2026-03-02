@@ -265,17 +265,17 @@ def register_combo(bot):
             bot.send_message(chat_id, "<b>❌ كل الكروت في الملف محظورة</b>", parse_mode="HTML")
             return
 
-		session.cards = valid_cards
-		total = len(valid_cards)
-		session.checking = True
-		session.stop = False
-		
-		# خزّن File ID لو مش موجود
-		if not hasattr(session, "file_id"):
-		    session.file_id = session.file_id if hasattr(session, "file_id") else "UNKNOWN"
-		
-		logger.info(f"[FILE] UID={uid} TOTAL={total} CARDS={len(session.cards)} "
-		            f"Filename={session.filename} FILE_ID={session.file_id}")
+        session.cards = valid_cards
+        total = len(valid_cards)
+        session.checking = True
+        session.stop = False
+        
+        # خزّن File ID لو مش موجود
+        if not hasattr(session, "file_id"):
+            session.file_id = session.file_id if hasattr(session, "file_id") else "UNKNOWN"
+        
+        logger.info(f"[FILE] UID={uid} TOTAL={total} CARDS={len(session.cards)} "
+                    f"Filename={session.filename} FILE_ID={session.file_id}")
 
         kb = types.InlineKeyboardMarkup(row_width=1)
         kb.add(
