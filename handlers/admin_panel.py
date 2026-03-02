@@ -245,21 +245,27 @@ def register_admin_panel(bot):
             if message.document:
                 file_info = bot.get_file(message.document.file_id)
                 downloaded_file = bot.download_file(file_info.file_path)
-                
+                content = downloaded_file.decode('utf-8', errors='ignore')
+            
+                bins_to_process = []
+            
                 if message.document.file_name.endswith('.json'):
                     try:
                         data = json.loads(content)
-                        content = downloaded_file.decode('utf-8', errors='ignore')
-                        bins_to_process = [line.strip()[:6] for line in content.splitlines() if line.strip().isdigit() and len(line.strip()) == 6]
-                        # نفترض أن الجيسون عبارة عن قائمة أو قاموس يحتوي على بينات
-                        if isinstance(data, list): bins_to_process = [str(x)[:6] for x in data]
-                        elif isinstance(data, dict): bins_to_process = [str(x)[:6] for x in data.values()]
-                    except:
-                        bot.reply_to(message, "❌ Invalid JSON file.")
+                        # دعم القوائم والقواميس
+                        if isinstance(data, list):
+                            bins_to_process = [str(x)[:6] for x in data if str(x)[:6].isdigit()]
+                        elif isinstance(data, dict):
+                            bins_to_process = [str(v)[:6] for v in data.values() if str(v)[:6].isdigit()]
+                    except Exception as e:
+                        bot.reply_to(message, f"❌ Invalid JSON file: {e}")
                         return
-                else: # نصي
-                    content = downloaded_file.decode('utf-8', errors='ignore')
-                    bins_to_process = list({b for b in bins_to_process if b.isdigit() and len(b) == 6})
+                else:
+                    # نصي أو كومبو (combo)
+                    for line in content.splitlines():
+                        line = line.strip()
+                        if len(line) >= 6 and line[:6].isdigit():
+                            bins_to_process.append(line[:6])
             
             # حالة النص العادي
             elif message.text:
@@ -281,6 +287,9 @@ def register_admin_panel(bot):
             ADMIN_STATES.pop(uid)
             msg = "✅ Blocked" if action == "bin:block" else "✅ Unblocked"
             bot.send_message(message.chat.id, f"{msg} <b>{success_count}</b> BINs successfully.", parse_mode="HTML")
+
+
+
   
     @bot.callback_query_handler(func=lambda c: c.data in ("user:ban", "user:unban"))  
     @admin_only
