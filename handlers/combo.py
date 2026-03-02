@@ -137,7 +137,7 @@ def register_combo(bot):
     global bot_instance
     bot_instance = bot
 
-    @bot.message_handler(commands=["combo"])
+    @bot.message_handler(func=lambda m: m.text and (m.text.lower().startswith("/combo") or m.text.lower().startswith(".combo")))
     def combo_command(message):
         uid = message.from_user.id
         user_name = message.from_user.first_name
@@ -151,14 +151,18 @@ def register_combo(bot):
 
         # Check if it's a reply to a document
         if message.reply_to_message and message.reply_to_message.document:
-            receive_combo(message.reply_to_message)
+            # نمرر رسالة الرد (التي تحتوي على الملف) لـ receive_combo
+            # ولكن نحتاج لتمرير المستخدم الأصلي الذي أرسل الأمر
+            receive_combo(message.reply_to_message, original_user=message.from_user)
         else:
             bot.reply_to(message, "<b>⚠️ Please reply to a combo file with /combo</b>", parse_mode="HTML")
 
     @bot.message_handler(content_types=["document"])
-    def receive_combo(message):
-        uid = message.from_user.id
-        user_name = message.from_user.first_name
+    def receive_combo(message, original_user=None):
+        # إذا تم استدعاؤها من رد، نستخدم المستخدم الذي أرسل الرد
+        user = original_user if original_user else message.from_user
+        uid = user.id
+        user_name = user.first_name
         
         logger.info(f"[UPLOAD] UID={uid}")
         if is_banned(uid):
