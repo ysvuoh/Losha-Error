@@ -164,7 +164,8 @@ def register_combo(bot):
         uid = user.id
         user_name = user.first_name
         
-        logger.info(f"[UPLOAD] UID={uid}")
+        logger.info(f"[UPLOAD] UID={uid} User={user_name} FILE_ID={message.document.file_id}")
+
         if is_banned(uid):
             bot.send_message(message.chat.id, "<b>🚫 YOU ARE BANNED</b>", parse_mode="HTML")
             return
@@ -268,7 +269,8 @@ def register_combo(bot):
         total = len(valid_cards)
         session.checking = True
         session.stop = False
-        logger.info(f"[START] UID={uid} GATE={gate_info['name']} TOTAL={total} CARDS={len(session.cards)}")
+
+        logger.info(f"[FILE] UID={uid} Cards={len(cards)} Filename={message.document.file_name} FILE_ID={message.document.file_id}")
 
         kb = types.InlineKeyboardMarkup(row_width=1)
         kb.add(
