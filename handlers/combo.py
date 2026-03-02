@@ -50,10 +50,12 @@ user_locks = defaultdict(Lock)
 sessions = {}
 bot_instance = None
 
+
+
 class ComboSession:
-    def __init__(self, cards, original_filename):
+    def __init__(self, cards, filename):
         self.cards = cards
-        self.original_filename = original_filename
+        self.filename = filename  # ← الاسم متوافق مع اللوج
         self.stop = False
         self.checking = False
         self.approved = 0
@@ -64,8 +66,9 @@ class ComboSession:
         self.approved_cards = []
         self.charged_cards = []
         self.funds_cards = []
-        self.declined_cards = [] # تم إضافة قائمة للمرفوضات
+        self.declined_cards = []  # تم إضافة قائمة للمرفوضات
         self.lock = Lock()
+        self.file_id = None  # ← لتخزين File ID لو احتجت
 
 AVAILABLE_GATES = {
     "stripe_auth": {"name": "Stripe_Auth", "func": stripe_auth_check, "type": "AUTH"},
@@ -188,6 +191,7 @@ def register_combo(bot):
             return
 
         sessions[uid] = ComboSession(cards, message.document.file_name)
+        sessions[uid].file_id = message.document.file_id
 
         kb = types.InlineKeyboardMarkup(row_width=1)
         for key, data in AVAILABLE_GATES.items():
