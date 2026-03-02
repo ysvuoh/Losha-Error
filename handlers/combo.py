@@ -137,6 +137,24 @@ def register_combo(bot):
     global bot_instance
     bot_instance = bot
 
+    @bot.message_handler(commands=["combo"])
+    def combo_command(message):
+        uid = message.from_user.id
+        user_name = message.from_user.first_name
+        
+        if is_banned(uid):
+            bot.send_message(message.chat.id, "<b>🚫 YOU ARE BANNED</b>", parse_mode="HTML")
+            return
+        if not is_channel_subscribed(bot, uid):
+            send_channel_prompt(bot, message.chat.id, user_name)
+            return
+
+        # Check if it's a reply to a document
+        if message.reply_to_message and message.reply_to_message.document:
+            receive_combo(message.reply_to_message)
+        else:
+            bot.reply_to(message, "<b>⚠️ Please reply to a combo file with /combo</b>", parse_mode="HTML")
+
     @bot.message_handler(content_types=["document"])
     def receive_combo(message):
         uid = message.from_user.id
@@ -303,10 +321,21 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                 start_time = time.time()
 
                 # ---- Retry ----
+                current_gate_name = gate_name
+                current_func_name = ""
+                
                 for attempt in range(MAX_RETRY):
                     try:
                         response = gate_func(card)
-                        r_text = str(response) if response else "Empty Response"
+                        
+                        if isinstance(response, tuple) and len(response) == 3:
+                            r_text, current_gate_name, current_func_name = response
+                        elif isinstance(response, tuple) and len(response) == 2:
+                            r_text, current_gate_name = response
+                            current_func_name = ""
+                        else:
+                            r_text = str(response) if response else "Empty Response"
+                        
                         break # نجاح
                     except Exception as gate_err:
                         r_text = f"Gate Exception: {str(gate_err)}"
@@ -323,23 +352,24 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                 message_to_send = None
                 hit_type = None
                 execution_time = time.time() - start_time
+                price_str = f"{cost} Credits"
 
                 # ===== تحديث الجلسة و إعداد الرسائل =====
                 with session.lock:
                     if status == "CHARGED":
                         session.charged += 1
                         session.charged_cards.append(card)
-                        message_to_send = charged_message(card, r_text, gate_name, execution_time, dato, checked_by_text=user_name)
+                        message_to_send = charged_message(card, r_text, current_gate_name, execution_time, dato, user_name, current_func_name, price=price_str)
                         hit_type = "charged"
                     elif status == "APPROVED":
                         session.approved += 1
                         session.approved_cards.append(card)
-                        message_to_send = approved_message(card, r_text, gate_name, execution_time, dato, checked_by_text=user_name)
+                        message_to_send = approved_message(card, r_text, current_gate_name, execution_time, dato, user_name, current_func_name, price=price_str)
                         hit_type = "approved"
                     elif status == "FUNDS":
                         session.funds += 1
                         session.funds_cards.append(card)
-                        message_to_send = insufficient_funds_message(card, r_text, gate_name, execution_time, dato, checked_by_text=user_name)
+                        message_to_send = insufficient_funds_message(card, r_text, current_gate_name, execution_time, dato, user_name, current_func_name, price=price_str)
                         hit_type = "funds"
                     else:
                         session.declined += 1
@@ -362,7 +392,7 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
                     try:
                         bot_instance.send_message(
                             HIT_CHAT,
-                            hit_detected_message(user_name, hit_type, execution_time, gate_name, checked_by_text=user_name),
+                            hit_detected_message(user_name, hit_type, execution_time, current_gate_name, user_name, current_func_name, price=price_str),
                             parse_mode="HTML"
                         )
                     except Exception as e:
