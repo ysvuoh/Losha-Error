@@ -85,12 +85,13 @@ def dato(zh):
 
 
 # ================= APPROVED =================
-def approved_message(cc, last, gate_name, execution_time, dato_func, checked_by_text="", func_name=""):
+def approved_message(cc, last, gate_name, execution_time, dato_func, checked_by_text="", func_name="", price=""):
     info = dato_func(cc[:6])
     cleaned_last = clean_response(last)
     header = f"#{gate_name}"
     if func_name:
         header += f" ({func_name})"
+    
     
     return f"""<b>{header} [{CHANNEL_ICON}] 🌩
 - - - - - - - - - - - - - - - - - - - - - -
@@ -110,12 +111,14 @@ def approved_message(cc, last, gate_name, execution_time, dato_func, checked_by_
 
 
 # ================= CHARGED =================
-def charged_message(cc, last, gate_name, execution_time, dato_func, checked_by_text="", func_name=""):
+def charged_message(cc, last, gate_name, execution_time, dato_func, checked_by_text="", func_name="", price=""):
     info = dato_func(cc[:6])
     cleaned_last = clean_response(last)
     header = f"#{gate_name}"
     if func_name:
         header += f" ({func_name})"
+
+
 
     return f"""<b>{header} [{CHANNEL_ICON}] 🌩
 - - - - - - - - - - - - - - - - - - - - - -
@@ -123,7 +126,7 @@ def charged_message(cc, last, gate_name, execution_time, dato_func, checked_by_t
 [{CHANNEL_ICON}] 𝐒𝐭𝐚𝐭𝐮𝐬: Charged 🔥
 [{CHANNEL_ICON}] 𝐑𝐞𝐬𝐩𝐨𝐧𝐬𝐞: {cleaned_last}
 - - - - - - - - - - - - - - - - - - - - - -
-[{CHANNEL_ICON}] 𝐁𝐢𝐧: {info['brand']} - {info['type']} - {info['level']}
+[{CHANNEL_ICON}] 𝐁𝐢ن: {info['brand']} - {info['type']} - {info['level']}
 [{CHANNEL_ICON}] 𝐁𝐚𝐧𝐤: {info['bank']}
 [{CHANNEL_ICON}] 𝐂𝐨𝐮𝐧𝐭𝐫𝐲: {info['country']} {info['flag']}
 - - - - - - - - - - - - - - - - - - - - - -
@@ -135,12 +138,14 @@ def charged_message(cc, last, gate_name, execution_time, dato_func, checked_by_t
 
 
 # ================= FUNDS =================
-def insufficient_funds_message(cc, last, gate_name, execution_time, dato_func, checked_by_text="", func_name=""):
+def insufficient_funds_message(cc, last, gate_name, execution_time, dato_func, checked_by_text="", func_name="", price=""):
     info = dato_func(cc[:6])
     cleaned_last = clean_response(last)
     header = f"#{gate_name}"
     if func_name:
         header += f" ({func_name})"
+
+
 
     return f"""<b>{header} [{CHANNEL_ICON}] 🌩
 - - - - - - - - - - - - - - - - - - - - - -
@@ -185,7 +190,7 @@ def declined_message(cc, last, gate_name, execution_time, dato_func, checked_by_
 
 
 # ================= HIT DETECTED =================
-def hit_detected_message(name, status_type, execution_time, gateway, checked_by_text="", func_name=""):
+def hit_detected_message(name, status_type, execution_time, gateway, checked_by_text="", func_name="", price=""):
     status_map = {
         "approved": "Approved ✅",
         "charged": "Charged ⚡",
@@ -196,6 +201,8 @@ def hit_detected_message(name, status_type, execution_time, gateway, checked_by_
     header = f"{gateway}"
     if func_name:
         header += f" ({func_name})"
+    
+
 
     return f"""<b>
 [{CHANNEL_ICON}] 𝗛𝗶𝘁 𝗗𝗲𝘁𝗲𝗰𝘁𝗲𝗱 🔥
