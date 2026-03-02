@@ -1,6 +1,9 @@
+import os
+import sys
+from pathlib import Path
 from telebot import types  
 from datetime import datetime, timedelta
-
+from handlers.buy import *
 from utils.admin_guard import is_admin  
 from storage.db import get_connection  
 from storage.repositories.bans import ban_user, unban_user, list_bans  
@@ -30,6 +33,7 @@ def render_main_panel(bot, chat_id, message_id=None, admin_name="Boss"):
         types.InlineKeyboardButton("🚪 Gate Control", callback_data="ap:gates"),
         types.InlineKeyboardButton("🚫 BIN Management", callback_data="ap:bins"),
         types.InlineKeyboardButton("📢 Broadcast", callback_data="ap:broadcast"),
+        types.InlineKeyboardButton("🗄 Database Manager", callback_data="ap:db_manager"),
     )
 
     text = f"""👑 Welcome My Boss \n<b>{admin_name}</b>
@@ -132,6 +136,15 @@ def render_gate_panel(bot, chat_id, gate_key, message_id):
         reply_markup=kb,  
         parse_mode="HTML"  
     )  
+# ================= DATABASE Manger =================  
+def render_db_manager_panel(bot, chat_id, message_id):
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        types.InlineKeyboardButton("📁 Download Current Database", callback_data="download_db"),
+        types.InlineKeyboardButton("📤 Upload New Database", callback_data="upload_db"),
+        types.InlineKeyboardButton("⬅ Back", callback_data="ap:back")
+    )
+    bot.edit_message_text("🗄 Database Manager", chat_id, message_id, reply_markup=kb)
   
 # ================= REGISTER =================  
 def register_admin_panel(bot):
@@ -286,12 +299,33 @@ def register_admin_panel(bot):
         else:
             bot.send_message(c.message.chat.id, "Send number of codes:")
   
-    # ===== BUY =====  
+    # ================= BUY PANEL & CALLBACKS (Corrected) =================    
+    def render_buy_panel(bot, chat_id, message_id):
+        kb = types.InlineKeyboardMarkup(row_width=1)
+        kb.add(
+            types.InlineKeyboardButton("➕ Add Package", callback_data="buy:add"),
+            types.InlineKeyboardButton("📦 View Packages", callback_data="buy:list"),
+            types.InlineKeyboardButton("⬅ Back", callback_data="ap:back"),
+        )
+        bot.edit_message_text(
+            "🛒 Buy Packages Control",
+            chat_id,
+            message_id,
+            reply_markup=kb
+        )  
+    
     @bot.callback_query_handler(func=lambda c: c.data == "ap:buy")
     @admin_only
     def buy_panel(c):
         render_buy_panel(bot, c.message.chat.id, c.message.message_id)
-
+    
+    # ===== (هذا هو الجزء المضاف والمهم) =====
+    @bot.callback_query_handler(func=lambda c: c.data == "buy:add")
+    @admin_only
+    def buy_add_prompt(c):
+        ADMIN_STATES[c.from_user.id] = {"action": "buy:add_credits"}
+        bot.send_message(c.message.chat.id, "💰 Send credits amount for the new package:")
+    
     @bot.callback_query_handler(func=lambda c: c.data == "buy:list")
     @admin_only
     def buy_list(c):
@@ -304,92 +338,100 @@ def register_admin_panel(bot):
         if not rows:
             bot.answer_callback_query(c.id, "❌ No packages found")
             return
-    
+        
+        bot.send_message(c.message.chat.id, "--- 📦 Available Packages ---")
         for pid, credits, stars, bonus, active in rows:
             status = "✅ Active" if active else "❌ Disabled"
-    
             kb = types.InlineKeyboardMarkup(row_width=2)
             kb.add(
                 types.InlineKeyboardButton("✏ Edit", callback_data=f"buy:edit:{pid}"),
                 types.InlineKeyboardButton("🔁 Toggle", callback_data=f"buy:toggle:{pid}")
             )
-            kb.add(
-                types.InlineKeyboardButton("🗑 Delete", callback_data=f"buy:delete:{pid}")
-            )
-    
+            kb.add(types.InlineKeyboardButton("🗑 Delete", callback_data=f"buy:delete:{pid}"))
             bot.send_message(
                 c.message.chat.id,
-                f"""📦 Package #{pid}
-    
-💰 Credits: {credits}
-⭐ Stars: {stars}
-🎁 Bonus: {bonus}
-📌 Status: {status}
-    """,
-                reply_markup=kb
+                f"📦 **Package #{pid}**\n\n💰 Credits: {credits}\n⭐ Stars: {stars}\n🎁 Bonus: {bonus}\n📌 Status: {status}",
+                reply_markup=kb,
+                parse_mode="Markdown"
             )
-
+    
     @bot.callback_query_handler(func=lambda c: c.data.startswith("buy:toggle:"))
     @admin_only
     def buy_toggle(c):
-        pid = int(c.data.split(":")[2])
+        try:
+            pid = int(c.data.split(":")[2])
+            conn = get_connection()
+            cur = conn.cursor()
+            cur.execute("UPDATE buy_packages SET active = 1 - active WHERE id = ?", (pid,))
+            conn.commit()
+            cur.execute("SELECT credits, stars, bonus, active FROM buy_packages WHERE id = ?", (pid,))
+            row = cur.fetchone()
+            conn.close()
+            if not row:
+                bot.answer_callback_query(c.id, "❌ Package not found.")
+                return
+            
+            credits, stars, bonus, active = row
+            status = "✅ Active" if active else "❌ Disabled"
+            kb = types.InlineKeyboardMarkup(row_width=2)
+            kb.add(
+                types.InlineKeyboardButton("✏ Edit", callback_data=f"buy:edit:{pid}"),
+                types.InlineKeyboardButton("🔁 Toggle", callback_data=f"buy:toggle:{pid}")
+            )
+            kb.add(types.InlineKeyboardButton("🗑 Delete", callback_data=f"buy:delete:{pid}"))
+            
+            bot.edit_message_text(
+                f"📦 **Package #{pid}**\n\n💰 Credits: {credits}\n⭐ Stars: {stars}\n🎁 Bonus: {bonus}\n📌 Status: {status}",
+                c.message.chat.id,
+                c.message.message_id,
+                reply_markup=kb,
+                parse_mode="Markdown"
+            )
+            bot.answer_callback_query(c.id, "✅ Package status toggled.")
+        except (ValueError, IndexError):
+            bot.answer_callback_query(c.id, "❌ Invalid package ID.")
+        except Exception as e:
+            bot.answer_callback_query(c.id, f"❌ Error: {e}")
+            if 'conn' in locals() and conn: conn.close()
     
-        conn = get_connection()
-        cur = conn.cursor()
-        cur.execute("UPDATE buy_packages SET active = 1 - active WHERE id = ?", (pid,))
-        cur.execute("SELECT credits, stars, bonus, active FROM buy_packages WHERE id = ?", (pid,))
-        row = cur.fetchone()
-        conn.commit()
-        conn.close()
-    
-        if not row:
-            bot.answer_callback_query(c.id, "❌ Package not found")
-            return
-    
-        credits, stars, bonus, active = row
-        status = "✅ Active" if active else "❌ Disabled"
-    
-        kb = types.InlineKeyboardMarkup(row_width=2)
-        kb.add(
-            types.InlineKeyboardButton("✏ Edit", callback_data=f"buy:edit:{pid}"),
-            types.InlineKeyboardButton("🔁 Toggle", callback_data=f"buy:toggle:{pid}")
-        )
-        kb.add(
-            types.InlineKeyboardButton("🗑 Delete", callback_data=f"buy:delete:{pid}")
-        )
-    
-        bot.edit_message_text(
-            f"""📦 Package #{pid}
-    
-💰 Credits: {credits}
-⭐ Stars: {stars}
-🎁 Bonus: {bonus}
-📌 Status: {status}
-    """,
-            c.message.chat.id,
-            c.message.message_id,
-            reply_markup=kb
-        )
-        bot.answer_callback_query(c.id, "✅ Package enabled" if active else "⛔ Package disabled")
-
     @bot.callback_query_handler(func=lambda c: c.data.startswith("buy:delete:"))
     @admin_only
     def buy_delete(c):
-        pid = int(c.data.split(":")[2])
-        conn = get_connection()
-        cur = conn.cursor()
-        cur.execute("DELETE FROM buy_packages WHERE id = ?", (pid,))
-        conn.commit()
-        conn.close()
-        bot.delete_message(c.message.chat.id, c.message.message_id)
-        bot.answer_callback_query(c.id, "🗑 Package deleted")
-
+        try:
+            pid = int(c.data.split(":")[2])
+            conn = get_connection()
+            cur = conn.cursor()
+            cur.execute("DELETE FROM buy_packages WHERE id = ?", (pid,))
+            conn.commit()
+            conn.close()
+            bot.delete_message(c.message.chat.id, c.message.message_id)
+            bot.answer_callback_query(c.id, "🗑 Package deleted.")
+        except (ValueError, IndexError):
+            bot.answer_callback_query(c.id, "❌ Invalid package ID.")
+        except Exception as e:
+            bot.answer_callback_query(c.id, f"❌ Error: {e}")
+            if 'conn' in locals() and conn: conn.close()
+    
     @bot.callback_query_handler(func=lambda c: c.data.startswith("buy:edit:"))
     @admin_only
     def buy_edit(c):
-        pid = int(c.data.split(":")[2])
-        ADMIN_STATES[c.from_user.id] = {"action": "buy:edit_credits", "pid": pid}
-        bot.send_message(c.message.chat.id, "✏ Send new credits value:")
+        try:
+            pid = int(c.data.split(":")[2])
+            conn = get_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM buy_packages WHERE id = ?", (pid,))
+            if not cur.fetchone():
+                bot.answer_callback_query(c.id, "❌ Package not found")
+                conn.close()
+                return
+            conn.close()
+        
+            ADMIN_STATES[c.from_user.id] = {"action": "buy:edit_credits", "pid": pid}
+            bot.send_message(c.message.chat.id, f"✏ Send new credits value for package #{pid}:")
+        except (ValueError, IndexError):
+            bot.answer_callback_query(c.id, "❌ Invalid package ID.")
+
+
 
     # ===== GATES =====  
     @bot.callback_query_handler(func=lambda c: c.data == "ap:gates")  
@@ -413,17 +455,26 @@ def register_admin_panel(bot):
         gates.set_enabled(gate, not gates.is_gate_enabled(gate))  
         render_gate_panel(bot, c.message.chat.id, gate, c.message.message_id)  
   
-    @bot.callback_query_handler(func=lambda c: c.data.startswith("gate:limit:"))  
+    @bot.callback_query_handler(func=lambda c: c.data.startswith("gate:limit:"))
     @admin_only
-    def gate_limit(c):  
-        ADMIN_STATES[c.from_user.id] = {"action": "gate:limit", "gate": c.data.split(":")[2]}  
-        bot.send_message(c.message.chat.id, "Send new max cards limit:")  
-  
-    @bot.callback_query_handler(func=lambda c: c.data.startswith("gate:cost:"))  
+    def gate_limit(c):
+        ADMIN_STATES[c.from_user.id] = {
+            "action": "gate:limit", 
+            "gate": c.data.split(":")[2],
+            "message_id": c.message.message_id  # <-- هذا هو التعديل
+        }
+        bot.send_message(c.message.chat.id, "Send new max cards limit:")
+
+    @bot.callback_query_handler(func=lambda c: c.data.startswith("gate:cost:"))
     @admin_only
-    def gate_cost(c):  
-        ADMIN_STATES[c.from_user.id] = {"action": "gate:cost", "gate": c.data.split(":")[2]}  
-        bot.send_message(c.message.chat.id, "Send new cost per card:")  
+    def gate_cost(c):
+        ADMIN_STATES[c.from_user.id] = {
+            "action": "gate:cost", 
+            "gate": c.data.split(":")[2],
+            "message_id": c.message.message_id  # <-- هذا هو التعديل
+        }
+        bot.send_message(c.message.chat.id, "Send new cost per card:")
+
   
     # ===== BROADCAST =====  
     @bot.callback_query_handler(func=lambda c: c.data == "ap:broadcast")  
@@ -431,25 +482,109 @@ def register_admin_panel(bot):
     def broadcast(c):  
         ADMIN_STATES[c.from_user.id] = {"action": "broadcast"}  
         bot.send_message(c.message.chat.id, "📢 Send broadcast message:")  
-         
-    # ===== INPUT HANDLER =====  
-    @bot.message_handler(func=lambda m: m.from_user.id in ADMIN_STATES)
+
+
+    # ================= DATABASE MANAGER =================
+    
+    @bot.callback_query_handler(func=lambda c: c.data == "ap:db_manager")
     @admin_only
-    def admin_input(m):
-        state = ADMIN_STATES.get(m.from_user.id)
-        if not state: return
-        action = state["action"]
+    def db_manager_panel(c):
+        render_db_manager_panel(bot, c.message.chat.id, c.message.message_id)
+    
+    
+    @bot.callback_query_handler(func=lambda call: call.data in ["download_db", "upload_db"])
+    @admin_only
+    def handle_db_buttons(call):
+    
+        db_file = Path("storage/db.sqlite")
+        db_file.parent.mkdir(parents=True, exist_ok=True)
+    
+        # ===== DOWNLOAD DATABASE =====
+        if call.data == "download_db":
+            try:
+                # 🔥 تأكد أن أي اتصال مفتوح مغلق قبل النسخ
+                try:
+                    conn = get_connection()
+                    conn.close()
+                except:
+                    pass
+    
+                with open(db_file, "rb") as f:
+                    bot.send_document(call.from_user.id, f)
+    
+                bot.answer_callback_query(call.id, "✅ Database exported successfully")
+    
+            except Exception as e:
+                bot.send_message(call.from_user.id, f"❌ Export failed: {e}")
+    
+        # ===== UPLOAD DATABASE =====
+        elif call.data == "upload_db":
+            msg = bot.send_message(call.from_user.id, "📤 Please send the new database file now:")
+            bot.register_next_step_handler(msg, process_uploaded_db)
+    
+    
+    def process_uploaded_db(message):
+    
+        if not hasattr(message, "document") or message.document is None:
+            bot.send_message(message.chat.id, "❌ Please send a valid database file!")
+            return
+    
+        db_path = Path("storage/db.sqlite")
+        db_path.parent.mkdir(parents=True, exist_ok=True)
     
         try:
-            # ===== BROADCAST EXECUTION =====
+            # تحميل الملف الجديد
+            file_info = bot.get_file(message.document.file_id)
+            downloaded_file = bot.download_file(file_info.file_path)
+    
+            # 🔥 اغلق أي اتصال مفتوح
+            try:
+                conn = get_connection()
+                conn.close()
+            except:
+                pass
+    
+            # 🔥 استبدال القاعدة بالكامل
+            with open(db_path, "wb") as f:
+                f.write(downloaded_file)
+    
+            bot.send_message(
+                message.chat.id,
+                "✅ Database replaced successfully!\n♻ Restarting bot..."
+            )
+    
+            # 🔥 Restart كامل للبروسيس
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+    
+        except Exception as e:
+            bot.send_message(message.chat.id, f"❌ Error uploading DB: {e}")
+        
+
+  
+
+
+    # ===== UNIFIED INPUT HANDLER (Final, Corrected Version) =====
+    @bot.message_handler(func=lambda m: m.from_user.id in ADMIN_STATES)
+    @admin_only
+    def admin_input_handler(m):
+        state = ADMIN_STATES.get(m.from_user.id)
+        if not state: return
+        action = state.get("action")
+        
+        try:
+            # ===== BROADCAST (Corrected) =====
             if action == "broadcast":
-                ADMIN_STATES.pop(m.from_user.id, None)
+                ADMIN_STATES.pop(m.from_user.id, None) # Remove state first
                 conn = get_connection()
                 cur = conn.cursor()
                 cur.execute("SELECT id FROM users")
                 users_list = cur.fetchall()
                 conn.close()
                 
+                if not users_list:
+                    bot.send_message(m.chat.id, "No users to broadcast to.")
+                    return
+
                 success, fail = 0, 0
                 status_msg = bot.send_message(m.chat.id, f"🚀 Starting broadcast to {len(users_list)} users...")
                 
@@ -457,99 +592,75 @@ def register_admin_panel(bot):
                     try:
                         bot.copy_message(uid, m.chat.id, m.message_id)
                         success += 1
-                    except:
+                    except Exception as e:
                         fail += 1
+                        print(f"Failed to send broadcast to {uid}: {e}")
                 
                 bot.edit_message_text(
                     f"""📢 <b>Broadcast Finished!</b>
 ━━━━━━━━━━━━━━━
 ✅ <b>Success:</b> {success}
 ❌ <b>Failed:</b> {fail}
-👥 <b>Total:</b> {len(users_list)}
-━━━━━━━━━━━━━━━
-Done My Boss! 👑""",
+👥 <b>Total:</b> {len(users_list)}""",
                     m.chat.id,
                     status_msg.message_id,
                     parse_mode="HTML"
                 )
+                return # End function here
+
+            # ===== USER MANAGEMENT =====
+            elif action == "user:ban":
+                user_id = int(m.text); ban_user(user_id, reason="Banned by admin.")
+                bot.send_message(m.chat.id, f"✅ User {user_id} has been banned.")
+            
+            elif action == "user:unban":
+                user_id = int(m.text); unban_user(user_id)
+                bot.send_message(m.chat.id, f"✅ User {user_id} has been unbanned.")
+
+            # ===== CREDITS MANAGEMENT =====
+            elif action == "credits:add":
+                user_id = int(m.text); ensure_row(user_id)
+                ADMIN_STATES[m.from_user.id] = {"action": "credits:add_amount", "target": user_id}
+                bot.send_message(m.chat.id, f"Send amount to add to user {user_id}:")
+                return 
+
+            elif action == "credits:add_amount":
+                amount = int(m.text); user_id = state["target"]
+                conn = get_connection(); cur = conn.cursor()
+                cur.execute("UPDATE credits SET balance = balance + ? WHERE user_id = ?", (amount, user_id)); conn.commit(); conn.close()
+                bot.send_message(m.chat.id, f"✅ Added {amount} credits to user {user_id}.")
+
+            elif action == "credits:take":
+                user_id = int(m.text); ensure_row(user_id)
+                ADMIN_STATES[m.from_user.id] = {"action": "credits:take_amount", "target": user_id}
+                bot.send_message(m.chat.id, f"Send amount to take from user {user_id}:")
                 return
 
-            # ===== USER BAN =====  
-            elif action == "user:ban":
-                target_id = int(m.text)
-                ban_user(target_id, reason="Admin decision")
-                try:
-                    user = bot.get_chat(target_id)
-                    name, username = user.first_name or "Unknown", f"@{user.username}" if user.username else "NoUsername"
-                except:
-                    name, username = "Unknown", "Unknown"
-                
-                bot.send_message(m.chat.id, f"✅ User Banned\nName: {name}\nID: {target_id}")
-                ADMIN_STATES.pop(m.from_user.id, None)
-                return
-  
-            elif action == "user:unban":
-                target_id = int(m.text)
-                unban_user(target_id)
-                bot.send_message(m.chat.id, f"✅ User Unbanned: {target_id}")
-                ADMIN_STATES.pop(m.from_user.id, None)
-                return
-  
-            # ===== CREDITS =====  
-            elif action == "credits:add":  
-                ensure_row(int(m.text))  
-                ADMIN_STATES[m.from_user.id] = {"action": "credits:add_amount", "target": int(m.text)}  
-                bot.send_message(m.chat.id, "Send amount:")  
-                return  
-  
-            elif action == "credits:add_amount":  
-                conn = get_connection()  
-                cur = conn.cursor()  
-                cur.execute("UPDATE credits SET balance = balance + ? WHERE user_id = ?", (int(m.text), state["target"]))  
-                conn.commit(); conn.close()  
-                bot.send_message(m.chat.id, "✅ Credits added.")
-                ADMIN_STATES.pop(m.from_user.id, None)
-                return
-  
-            elif action == "credits:take":  
-                ensure_row(int(m.text))  
-                ADMIN_STATES[m.from_user.id] = {"action": "credits:take_amount", "target": int(m.text)}  
-                bot.send_message(m.chat.id, "Send amount:")  
-                return  
-  
-            elif action == "credits:take_amount":  
-                conn = get_connection()  
-                cur = conn.cursor()  
-                cur.execute("UPDATE credits SET balance = balance - ? WHERE user_id = ?", (int(m.text), state["target"]))  
-                conn.commit(); conn.close()  
-                bot.send_message(m.chat.id, "✅ Credits taken.")
-                ADMIN_STATES.pop(m.from_user.id, None)
-                return
+            elif action == "credits:take_amount":
+                amount = int(m.text); user_id = state["target"]
+                conn = get_connection(); cur = conn.cursor()
+                cur.execute("UPDATE credits SET balance = balance - ? WHERE user_id = ?", (amount, user_id)); conn.commit(); conn.close()
+                bot.send_message(m.chat.id, f"✅ Took {amount} credits from user {user_id}.")
 
             elif action == "credits:unlimited":
-                uid = int(m.text)
+                user_id = int(m.text); ensure_row(user_id)
                 conn = get_connection(); cur = conn.cursor()
-                cur.execute("UPDATE credits SET balance = -1 WHERE user_id = ?", (uid,))
-                conn.commit(); conn.close()
-                bot.send_message(m.chat.id, f"💳 User {uid} now has Unlimited credits")
-                ADMIN_STATES.pop(m.from_user.id, None)
-                return
+                cur.execute("UPDATE credits SET balance = -1 WHERE user_id = ?", (user_id,)); conn.commit(); conn.close()
+                bot.send_message(m.chat.id, f"💳 User {user_id} now has unlimited credits.")
 
             elif action == "credits:check":
-                uid = int(m.text)
-                bal = get_credits(uid)
-                bot.send_message(m.chat.id, f"💳 User {uid} Balance: {'Unlimited' if bal == -1 else bal}")
-                ADMIN_STATES.pop(m.from_user.id, None)
-                return
+                user_id = int(m.text)
+                balance = get_credits(user_id)
+                bot.send_message(m.chat.id, f"💳 User {user_id} Balance: {'Unlimited' if balance == -1 else balance}")
 
-            # ===== CODES =====
+            # ===== CODE GENERATION (New Style) =====
             elif action == "credits:code":
                 ADMIN_STATES[m.from_user.id] = {"action": "code:credits", "count": int(m.text)}
                 bot.send_message(m.chat.id, "Send credits per code:")
                 return
 
             elif action == "code:credits":
-                ADMIN_STATES[m.from_user.id] = {"action": "code:max_uses", "count": state["count"], "credits": int(m.text)}
+                ADMIN_STATES[m.from_user.id].update({"action": "code:max_uses", "credits": int(m.text)})
                 bot.send_message(m.chat.id, "Send max uses per code:")
                 return
 
@@ -557,10 +668,7 @@ Done My Boss! 👑""",
                 max_uses = int(m.text)
                 count = state["count"]
                 credits_val = state["credits"]
-                codes = []
-                for _ in range(count):
-                    c = create_code(credits=credits_val, max_uses=max_uses)
-                    codes.append(c)
+                codes = [create_code(credits=credits_val, max_uses=max_uses) for _ in range(count)]
                 
                 if count > 1:
                     txt = "\n".join(f"<code>{c}</code>" for c in codes)
@@ -590,77 +698,77 @@ Done My Boss! 👑""",
 ━━━━━━━━━━━━━━━━━━"""
                 
                 bot.send_message(m.chat.id, msg, parse_mode="HTML")
-                ADMIN_STATES.pop(m.from_user.id, None)
-                return
 
-            # ===== BUY PACKAGES =====
+            # ===== BIN MANAGEMENT =====
+            elif action == "bin:block":
+                bin_num = m.text.strip()[:6]
+                if bin_num.isdigit() and len(bin_num) == 6:
+                    ban_bin(bin_num)
+                    bot.send_message(m.chat.id, f"✅ BIN <code>{bin_num}</code> blocked.", parse_mode="HTML")
+                else:
+                    bot.send_message(m.chat.id, "❌ Invalid BIN. Please send 6 digits.")
+            
+            elif action == "bin:unblock":
+                bin_num = m.text.strip()[:6]
+                unban_bin(bin_num)
+                bot.send_message(m.chat.id, f"✅ BIN <code>{bin_num}</code> unblocked.", parse_mode="HTML")
+
+            # ===== GATE MANAGEMENT =====
+            elif action == "gate:limit":
+                gate_key = state["gate"]; new_limit = int(m.text)
+                gates.set_limit(gate_key, new_limit)
+                bot.send_message(m.chat.id, f"✅ Limit for {GATES[gate_key]} updated.")
+                render_gate_panel(bot, m.chat.id, gate_key, state["message_id"])
+
+            elif action == "gate:cost":
+                gate_key = state["gate"]; new_cost = int(m.text)
+                gates.set_cost(gate_key, new_cost)
+                bot.send_message(m.chat.id, f"✅ Cost for {GATES[gate_key]} updated.")
+                render_gate_panel(bot, m.chat.id, gate_key, state["message_id"])
+
+            # ===== BUY PACKAGE MANAGEMENT =====
             elif action == "buy:add_credits":
-                ADMIN_STATES[m.from_user.id] = {"action": "buy:add_stars", "credits": int(m.text)}
+                credits = int(m.text)
+                ADMIN_STATES[m.from_user.id] = {"action": "buy:add_stars", "credits": credits}
                 bot.send_message(m.chat.id, "⭐ Send stars amount:")
                 return
 
             elif action == "buy:add_stars":
-                ADMIN_STATES[m.from_user.id] = {"action": "buy:add_bonus", "credits": state["credits"], "stars": int(m.text)}
+                stars = int(m.text)
+                ADMIN_STATES[m.from_user.id].update({"action": "buy:add_bonus", "stars": stars})
                 bot.send_message(m.chat.id, "🎁 Send bonus amount:")
                 return
 
             elif action == "buy:add_bonus":
+                bonus = int(m.text)
                 conn = get_connection(); cur = conn.cursor()
-                cur.execute("INSERT INTO buy_packages (credits, stars, bonus, active) VALUES (?, ?, ?, 1)", (state["credits"], state["stars"], int(m.text)))
+                cur.execute("INSERT INTO buy_packages (credits, stars, bonus, active) VALUES (?, ?, ?, 1)", (state["credits"], state["stars"], bonus))
                 conn.commit(); conn.close()
-                bot.send_message(m.chat.id, "✅ Package added successfully")
-                ADMIN_STATES.pop(m.from_user.id, None)
-                return
+                bot.send_message(m.chat.id, "✅ Package added successfully.")
 
             elif action == "buy:edit_credits":
-                ADMIN_STATES[m.from_user.id] = {"action": "buy:edit_stars", "pid": state["pid"], "credits": int(m.text)}
+                credits = int(m.text)
+                ADMIN_STATES[m.from_user.id].update({"action": "buy:edit_stars", "credits": credits})
                 bot.send_message(m.chat.id, "⭐ Send new stars value:")
                 return
-            
+
             elif action == "buy:edit_stars":
-                ADMIN_STATES[m.from_user.id] = {"action": "buy:edit_bonus", "pid": state["pid"], "credits": state["credits"], "stars": int(m.text)}
-                bot.send_message(m.chat.id, "🎁 Send new bonus:")
+                stars = int(m.text)
+                ADMIN_STATES[m.from_user.id].update({"action": "buy:edit_bonus", "stars": stars})
+                bot.send_message(m.chat.id, "🎁 Send new bonus value:")
                 return
-            
+
             elif action == "buy:edit_bonus":
+                bonus = int(m.text)
                 conn = get_connection(); cur = conn.cursor()
-                cur.execute("UPDATE buy_packages SET credits = ?, stars = ?, bonus = ? WHERE id = ?", (state["credits"], state["stars"], int(m.text), state["pid"]))
+                cur.execute("UPDATE buy_packages SET credits = ?, stars = ?, bonus = ? WHERE id = ?", (state["credits"], state["stars"], bonus, state["pid"]))
                 conn.commit(); conn.close()
-                bot.send_message(m.chat.id, "✅ Package updated successfully")
-                ADMIN_STATES.pop(m.from_user.id, None)
-                return
+                bot.send_message(m.chat.id, "✅ Package updated successfully.")
 
-            # ===== GATES =====
-            elif action == "gate:limit":
-                gates.set_limit(state["gate"], int(m.text))
-                bot.send_message(m.chat.id, "✅ Limit updated")
+            # Clean up state after action is done
+            if m.from_user.id in ADMIN_STATES:
                 ADMIN_STATES.pop(m.from_user.id, None)
-                return
-
-            elif action == "gate:cost":
-                gates.set_cost(state["gate"], int(m.text))
-                bot.send_message(m.chat.id, "✅ Cost updated")
-                ADMIN_STATES.pop(m.from_user.id, None)
-                return
-
-            # ===== BINS =====
-            elif action == "bin:block":
-                bin_num = str(m.text).strip()[:6]
-                if not bin_num.isdigit() or len(bin_num) < 6:
-                    bot.send_message(m.chat.id, "❌ Invalid BIN. Send 6 digits.")
-                    return
-                ban_bin(bin_num)
-                bot.send_message(m.chat.id, f"✅ BIN <code>{bin_num}</code> blocked.", parse_mode="HTML")
-                ADMIN_STATES.pop(m.from_user.id, None)
-                return
-
-            elif action == "bin:unblock":
-                bin_num = str(m.text).strip()[:6]
-                unban_bin(bin_num)
-                bot.send_message(m.chat.id, f"✅ BIN <code>{bin_num}</code> unblocked.", parse_mode="HTML")
-                ADMIN_STATES.pop(m.from_user.id, None)
-                return
 
         except Exception as e:
-            bot.send_message(m.chat.id, f"❌ Error: {str(e)}")
+            bot.send_message(m.chat.id, f"❌ An error occurred: {str(e)}")
             ADMIN_STATES.pop(m.from_user.id, None)
