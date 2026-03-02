@@ -1,7 +1,5 @@
 import os
-import io
 import sys
-import json
 from pathlib import Path
 from telebot import types  
 from datetime import datetime, timedelta
@@ -194,9 +192,7 @@ def register_admin_panel(bot):
     def users(c):  
         render_users_panel(bot, c.message.chat.id, c.message.message_id)  
 
-    # ===== BINS ===== 
-
-         
+    # ===== BINS =====  
     @bot.callback_query_handler(func=lambda c: c.data == "ap:bins")  
     @admin_only
     def bins(c):  
@@ -206,7 +202,7 @@ def register_admin_panel(bot):
     @admin_only
     def bin_action(c):  
         ADMIN_STATES[c.from_user.id] = {"action": c.data}  
-        bot.send_message(c.message.chat.id, "<b>Please send the BIN (6 digits) or upload a .txt / .json file for bulk action:</b>", parse_mode="HTML")  
+        bot.send_message(c.message.chat.id, "Send BIN (6 digits):")  
 
     @bot.callback_query_handler(func=lambda c: c.data == "bin:list")  
     @admin_only
@@ -215,81 +211,10 @@ def register_admin_panel(bot):
         if not rows:  
             bot.send_message(c.message.chat.id, "No blocked BINs.")  
             return  
-        
-        txt = "🚫 Blocked BINs List:\n\n"  
+        txt = "🚫 Blocked BINs:\n\n"  
         for bin_num, at in rows:  
-            txt += f"• <code>{bin_num}</code> | {at}\n"  
-        
-        # تليجرام يسمح بـ 4096 حرف، سنستخدم 3800 للأمان
-        if len(txt) > 3800:
-            file_stream = io.BytesIO(txt.encode('utf-8'))
-            file_stream.name = "blocked_bins.txt"
-            bot.send_document(c.message.chat.id, file_stream, caption="📋 The list is too long, sent as a file.")
-        else:
-            bot.send_message(c.message.chat.id, txt, parse_mode="HTML")
-
-    @bot.message_handler(content_types=['document', 'text'])
-    @admin_only
-    def handle_admin_inputs(message):
-        uid = message.from_user.id
-        if uid not in ADMIN_STATES:
-            return
-        
-        state = ADMIN_STATES[uid]
-        action = state.get("action")
-        
-        if action in ("bin:block", "bin:unblock"):
-            bins_to_process = []
-            
-            # حالة الملف
-            if message.document:
-                file_info = bot.get_file(message.document.file_id)
-                downloaded_file = bot.download_file(file_info.file_path)
-                content = downloaded_file.decode('utf-8', errors='ignore')
-            
-                bins_to_process = []
-            
-                if message.document.file_name.endswith('.json'):
-                    try:
-                        data = json.loads(content)
-                        # دعم القوائم والقواميس
-                        if isinstance(data, list):
-                            bins_to_process = [str(x)[:6] for x in data if str(x)[:6].isdigit()]
-                        elif isinstance(data, dict):
-                            bins_to_process = [str(v)[:6] for v in data.values() if str(v)[:6].isdigit()]
-                    except Exception as e:
-                        bot.reply_to(message, f"❌ Invalid JSON file: {e}")
-                        return
-                else:
-                    # نصي أو كومبو (combo)
-                    for line in content.splitlines():
-                        line = line.strip()
-                        if len(line) >= 6 and line[:6].isdigit():
-                            bins_to_process.append(line[:6])
-            
-            # حالة النص العادي
-            elif message.text:
-                bins_to_process = [message.text.strip()[:6]]
-            
-            if not bins_to_process:
-                bot.reply_to(message, "❌ No valid BINs found.")
-                return
-            
-            success_count = 0
-            for b in bins_to_process:
-                if action == "bin:block":
-                    ban_bin(b)
-                    success_count += 1
-                else:
-                    unban_bin(b)
-                    success_count += 1
-            
-            ADMIN_STATES.pop(uid)
-            msg = "✅ Blocked" if action == "bin:block" else "✅ Unblocked"
-            bot.send_message(message.chat.id, f"{msg} <b>{success_count}</b> BINs successfully.", parse_mode="HTML")
-
-
-
+            txt += f"- <code>{bin_num}</code> | {at}\n"  
+        bot.send_message(c.message.chat.id, txt, parse_mode="HTML")  
   
     @bot.callback_query_handler(func=lambda c: c.data in ("user:ban", "user:unban"))  
     @admin_only
@@ -375,6 +300,20 @@ def register_admin_panel(bot):
             bot.send_message(c.message.chat.id, "Send number of codes:")
   
     # ================= BUY PANEL & CALLBACKS (Corrected) =================    
+    def render_buy_panel(bot, chat_id, message_id):
+        kb = types.InlineKeyboardMarkup(row_width=1)
+        kb.add(
+            types.InlineKeyboardButton("➕ Add Package", callback_data="buy:add"),
+            types.InlineKeyboardButton("📦 View Packages", callback_data="buy:list"),
+            types.InlineKeyboardButton("⬅ Back", callback_data="ap:back"),
+        )
+        bot.edit_message_text(
+            "🛒 Buy Packages Control",
+            chat_id,
+            message_id,
+            reply_markup=kb
+        )  
+    
     @bot.callback_query_handler(func=lambda c: c.data == "ap:buy")
     @admin_only
     def buy_panel(c):
@@ -760,6 +699,19 @@ def register_admin_panel(bot):
                 
                 bot.send_message(m.chat.id, msg, parse_mode="HTML")
 
+            # ===== BIN MANAGEMENT =====
+            elif action == "bin:block":
+                bin_num = m.text.strip()[:6]
+                if bin_num.isdigit() and len(bin_num) == 6:
+                    ban_bin(bin_num)
+                    bot.send_message(m.chat.id, f"✅ BIN <code>{bin_num}</code> blocked.", parse_mode="HTML")
+                else:
+                    bot.send_message(m.chat.id, "❌ Invalid BIN. Please send 6 digits.")
+            
+            elif action == "bin:unblock":
+                bin_num = m.text.strip()[:6]
+                unban_bin(bin_num)
+                bot.send_message(m.chat.id, f"✅ BIN <code>{bin_num}</code> unblocked.", parse_mode="HTML")
 
             # ===== GATE MANAGEMENT =====
             elif action == "gate:limit":
