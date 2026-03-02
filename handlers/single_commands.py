@@ -4,11 +4,13 @@ import time
 from threading import Lock
 import sqlite3
 from pathlib import Path
+import re
+
 from utils.classify import classify_result
 from security.channel_guard import is_channel_subscribed, send_channel_prompt
 from storage.repositories.bans import is_banned
 from storage.repositories.bin_bans import is_bin_banned
-from storage.repositories.credits import get_credits, deduct_one_atomic
+from storage.repositories.credits import get_credits
 from storage.repositories.gates import is_gate_enabled
 
 from utils.messages import (
@@ -23,41 +25,33 @@ from utils.messages import (
 
 from config.settings import HIT_CHAT, ADMINS
 
-# ===== DATABASE PATH =====
-DB_PATH = Path(__file__).parent.parent / "db.sqlite"  # تعديل المسار ليتوافق مع الهيكل
-def get_connection():
-    return sqlite3.connect(DB_PATH, isolation_level=None)
 
-# ===== HIT COUNTER =====
-hit_counter_lock = Lock()
+# ======================================================
+# CARD EXTRACTOR + VALIDATOR
+# ======================================================
 
-def get_next_hit_number():
-    with hit_counter_lock:
-        conn = get_connection()
-        cur = conn.cursor()
-        # تأكد من وجود جدول hit_counter
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS hit_counter (
-                id INTEGER PRIMARY KEY CHECK (id=1),
-                last_hit INTEGER NOT NULL DEFAULT 0
-            )
-        """)
-        cur.execute("INSERT OR IGNORE INTO hit_counter (id, last_hit) VALUES (1, 0)")
+def extract_valid_card(text: str):
+    if not text:
+        return None
 
-        # اقرأ آخر هيت
-        cur.execute("SELECT last_hit FROM hit_counter WHERE id=1")
-        row = cur.fetchone()
-        last_hit = row[0] if row else 0
+    pattern = r'(\d{13,16})[|/:](\d{1,2})[|/:](\d{2,4})[|/:](\d{3,4})'
+    match = re.search(pattern, text)
 
-        # زود العداد
-        next_hit = last_hit + 1
-        cur.execute("UPDATE hit_counter SET last_hit=? WHERE id=1", (next_hit,))
+    if not match:
+        return None
 
-        conn.commit()
-        conn.close()
-        return next_hit
+    number, month, year, cvv = match.groups()
 
-# ===== GATES =====
+    month = month.zfill(2)
+    year = year if len(year) == 4 else "20" + year
+
+    return f"{number}|{month}|{year}|{cvv}"
+
+
+# ======================================================
+# GATES
+# ======================================================
+
 from gates.stripe_auth import check as stripe_auth_check
 from gates.shopify_charge import check as shopify_charge_check
 from gates.braintree_auth import check as braintree_auth_check
@@ -72,7 +66,11 @@ SINGLE_GATES = {
     "pp":  ("Paypal_Donation", paypal_donation_check, "CHARGE", "paypal_donation"),
 }
 
-# ===== THREAD SAFE SEND =====
+
+# ======================================================
+# THREAD SAFE SEND
+# ======================================================
+
 send_lock = Lock()
 
 def send_hit(bot, chat_id, text):
@@ -82,43 +80,34 @@ def send_hit(bot, chat_id, text):
         except Exception as e:
             print(f"[HIT SEND ERROR] {e}")
 
-# ===== SAFE HELPERS =====
+
 def safe_edit(bot, chat_id, msg_id, text):
     try:
-        bot.edit_message_text(
-            text,
-            chat_id,
-            msg_id,
-            parse_mode="HTML"
-        )
-    except ApiTelegramException as e:
-        if "Too Many Requests" in str(e):
-            time.sleep(3)
+        bot.edit_message_text(text, chat_id, msg_id, parse_mode="HTML")
+    except:
         try:
             bot.send_message(chat_id, text, parse_mode="HTML")
         except:
             pass
-    except:
-        pass
+
 
 def safe_pin(bot, chat_id, msg_id):
     try:
-        bot.pin_chat_message(
-            chat_id,
-            msg_id,
-            disable_notification=True
-        )
+        bot.pin_chat_message(chat_id, msg_id, disable_notification=True)
     except:
         pass
 
-# ===== REGISTER SINGLE COMMANDS =====
+
+# ======================================================
+# REGISTER SINGLE COMMANDS
+# ======================================================
+
 def register_single_commands(bot):
 
     def run_single_check(message, gate_key, card):
+
         user_id = message.from_user.id
         user_name = get_user_name(message.from_user)
-        name = message.from_user.first_name or "Hidden"
-        username = message.from_user.username
 
         # 🚫 BANNED
         if is_banned(user_id):
@@ -135,7 +124,7 @@ def register_single_commands(bot):
         if not is_gate_enabled(db_key):
             bot.reply_to(
                 message,
-                f"<b>⛔ GATE DISABLED</b>\n\n<b>{gate_name}</b> is currently closed by admin.",
+                f"<b>⛔ GATE DISABLED</b>\n\n<b>{gate_display_name}</b> is currently closed by admin.",
                 parse_mode="HTML"
             )
             return
@@ -153,15 +142,10 @@ def register_single_commands(bot):
         # 🚫 BIN CHECK
         bin_num = card[:6]
         if is_bin_banned(bin_num):
-            bot.reply_to(message, "<b>❌ البين محظور</b>", parse_mode="HTML")
-            # Notify Admins
-            admin_msg = f"<b>🚨 محاولة استعمال بين محظور!</b>\n\n<b>👤 المستخدم:</b> {user_name} (<code>{user_id}</code>)\n<b>💳 الكرت:</b> <code>{card}</code>\n<b>🚫 البين:</b> <code>{bin_num}</code>"
-            for admin_id in ADMINS:
-                try: bot.send_message(admin_id, admin_msg, parse_mode="HTML")
-                except: pass
+            bot.reply_to(message, "<b>❌ BIN BANNED</b>", parse_mode="HTML")
             return
 
-        # ⏳ WAIT
+        # ⏳ WAIT MESSAGE
         wait_msg = bot.reply_to(
             message,
             "<b>⏳ PLEASE WAIT CHECKING YOUR CARD...</b>",
@@ -170,75 +154,71 @@ def register_single_commands(bot):
         msg_id = wait_msg.message_id
 
         start = time.time()
-        try:
-            # دالة check تعيد الآن (النتيجة، اسم البوابة، اسم الدالة)
-            res_tuple = gate_func(card)
-            if isinstance(res_tuple, tuple) and len(res_tuple) == 3:
-                result, gate_name, func_name = res_tuple
-            elif isinstance(res_tuple, tuple) and len(res_tuple) == 2:
-                result, gate_name = res_tuple
-                func_name = ""
-            else:
-                result = str(res_tuple)
-                gate_name = gate_display_name
-                func_name = ""
-        except Exception as e:
-            result = f"Gateway Error: {str(e)[:50]}"
+
+    try:
+        res = gate_func(card)
+
+        if isinstance(res, tuple) and len(res) == 3:
+            result, gate_name, func_name = res
+        elif isinstance(res, tuple) and len(res) == 2:
+            result, gate_name = res
+            func_name = ""
+        else:
+            result = str(res)
+            gate_name = gate_display_name
+            func_name = ""
+
+    except Exception as e:
+            result = f"Gateway Error"
             gate_name = gate_display_name
             func_name = ""
 
         exec_time = round(time.time() - start, 2)
-        result_l = str(result).lower()
 
-
+        # ===== Deduct Credits =====
         if credits != -1:
-
             from storage.repositories.credits import deduct_credits
             from storage.repositories.gates import get_cost
+            cost = get_cost(db_key)
+            deduct_credits(user_id, cost)
 
-            cost_to_deduct = get_cost(db_key)
-            deduct_credits(user_id, cost_to_deduct)
-
-
-        # ===== Classify and Send Result =====
+        # ===== CLASSIFY =====
         status = classify_result(result)
-        user_text = ""
-        hit_type = None
-        pin_message = False
 
         if status == "CHARGED":
-            user_text = charged_message(card, result, gate_name, exec_time, dato, user_name, func_name)
+            text = charged_message(card, result, gate_name, exec_time, dato, user_name, func_name)
             hit_type = "charged"
-            pin_message = True
-        
+            pin = True
+
         elif status == "APPROVED":
-            user_text = approved_message(card, result, gate_name, exec_time, dato, user_name, func_name)
+            text = approved_message(card, result, gate_name, exec_time, dato, user_name, func_name)
             hit_type = "approved"
-            pin_message = True
+            pin = True
 
         elif status == "FUNDS":
-            user_text = insufficient_funds_message(card, result, gate_name, exec_time, dato, user_name, func_name)
+            text = insufficient_funds_message(card, result, gate_name, exec_time, dato, user_name, func_name)
             hit_type = "funds"
-            pin_message = True
+            pin = True
 
-        else: # Declined
-            user_text = declined_message(card, result, gate_name, exec_time, dato, user_name, func_name)
-            pin_message = False
+        else:
+            text = declined_message(card, result, gate_name, exec_time, dato, user_name, func_name)
+            hit_type = None
+            pin = False
 
-        # Send the final message to the user
-        safe_edit(bot, message.chat.id, msg_id, user_text)
+        safe_edit(bot, message.chat.id, msg_id, text)
 
-        # Pin if it was a hit in a group chat
-        if pin_message and message.chat.type != "private":
+        if pin and message.chat.type != "private":
             safe_pin(bot, message.chat.id, msg_id)
 
-        # Send hit notification to the hit channel
         if hit_type:
             hit_text = hit_detected_message(user_name, hit_type, exec_time, gate_name, "", func_name)
             send_hit(bot, HIT_CHAT, hit_text)
 
 
-    # ===== HANDLER =====
+    # ======================================================
+    # HANDLER
+    # ======================================================
+
     @bot.message_handler(
         func=lambda m: (
             m.text and (
@@ -249,11 +229,28 @@ def register_single_commands(bot):
         )
     )
     def single_handler(message):
+
+        cmd = message.text.split()[0][1:].lower()
+        card = None
+
+        # 1️⃣ Card after command
         parts = message.text.strip().split(maxsplit=1)
-        if len(parts) != 2:
+        if len(parts) == 2:
+            card = extract_valid_card(parts[1])
+
+        # 2️⃣ Reply mode
+        if not card and message.reply_to_message:
+            replied_text = message.reply_to_message.text
+            card = extract_valid_card(replied_text)
+
+        # ❌ Wrong format
+        if not card:
+            bot.reply_to(
+                message,
+                "<b>❌ Wrong format</b>\n\n",
+                parse_mode="HTML"
+            )
             return
 
-        cmd = parts[0][1:].lower()
-        card = parts[1]
-
+        # ✅ Valid card
         run_single_check(message, cmd, card)
