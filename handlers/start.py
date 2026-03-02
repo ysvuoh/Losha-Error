@@ -1,16 +1,10 @@
 import random
-from datetime import datetime
-
 from telebot import types
 
 from storage.repositories.users import create_or_update_user
 from storage.repositories.credits import get_credits
 from storage.repositories.bans import is_banned
-from storage.db import get_connection
-
-from security.channel_guard import is_channel_subscribed, send_channel_prompt
-from config.settings import OWNER_HTML, OWNER_NAME, TOOL_BY 
-
+from config.settings import OWNER_NAME, TOOL_BY 
 
 VIDEO_LINKS = [
     "https://t.me/L_O_S_H_A_1/26",
@@ -24,40 +18,13 @@ VIDEO_LINKS = [
     "https://t.me/L_O_S_H_A_1/398",
 ]
 
-
-def is_vip_user(user_id: int):
-    """تحقق VIP حقيقي من جدول vip_status"""
-    conn = get_connection()
-    cur = conn.cursor()
-
-    cur.execute(
-        "SELECT expires_at FROM vip_status WHERE user_id = ?",
-        (user_id,)
-    )
-    row = cur.fetchone()
-    conn.close()
-
-    if not row or not row[0]:
-        return False, None
-
-    try:
-        expires_at = datetime.fromisoformat(row[0])
-        if expires_at > datetime.utcnow():
-            remaining_min = int((expires_at - datetime.utcnow()).total_seconds() / 60)
-            return True, remaining_min
-    except:
-        pass
-
-    return False, None
-
-
 def register_start(bot):
 
     @bot.message_handler(commands=["start"])
     def start_handler(message):
         user_id = message.from_user.id
-        name = message.from_user.first_name or "Hidden"
-        username = message.from_user.username  # نخزن None لو مش موجود
+        name = message.from_user.first_name or "User"
+        username = message.from_user.username
 
         # 🚫 Ban check
         if is_banned(user_id):
@@ -67,19 +34,14 @@ def register_start(bot):
             )
             return
 
-
-
-        # 👤 Create / Update user (دايمًا)
+        # 👤 Create / Update user
         create_or_update_user(
             user_id=user_id,
             first_name=name,
             username=username
         )
 
-        # 💎 VIP check (حقيقي)
-        vip, vip_remaining = is_vip_user(user_id)
-
-        # 💳 Credits
+        # 💳 Credits check
         balance = get_credits(user_id)
 
         # 🎥 Keyboard
@@ -91,17 +53,8 @@ def register_start(bot):
             )
         )
 
-        # 📝 Caption
-        if vip:
-            caption = f"""✨ Welcome {name} ✨
-
-💎 VIP Status : Active
-⏱ Remaining  : {vip_remaining} min
-
-- Send your combo to check
-ϟ Tool By ⇾ {TOOL_BY} ϟ
-"""
-        elif balance == -1:
+        # 📝 Caption setup
+        if balance == -1:
             caption = f"""✨ Welcome {name} ✨
 
 💳 Credits : Unlimited
@@ -127,7 +80,7 @@ Use /buy to get credits
 ϟ Tool By ⇾ {TOOL_BY} ϟ
 """
 
-        # 🎬 Send video
+        # 🎬 Send video with new caption
         bot.send_video(
             chat_id=message.chat.id,
             video=random.choice(VIDEO_LINKS),
