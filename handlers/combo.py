@@ -459,25 +459,25 @@ def run_check(uid, chat_id, message_id, gate_key, total, cost, user_name):
             # 1. ملف Approved
             if session.approved_cards:
                 approved_file = io.BytesIO("\n".join(session.approved_cards).encode())
-                approved_file.name = f"Approved_{session.original_filename}"
+                approved_file.name = f"Approved_{session.filename}"
                 bot_instance.send_document(chat_id, approved_file, caption=f"<b>[@chk_error_bot] Approved_Cards: {len(session.approved_cards)}</b>", parse_mode="HTML")
 
             # 2. ملف Charged
             if session.charged_cards:
                 charged_file = io.BytesIO("\n".join(session.charged_cards).encode())
-                charged_file.name = f"Charged_{session.original_filename}"
+                charged_file.name = f"Charged_{session.filename}"
                 bot_instance.send_document(chat_id, charged_file, caption=f"<b>[@chk_error_bot] Charged_Cards: {len(session.charged_cards)}</b>", parse_mode="HTML")
 
             # 3. ملف Funds
             if session.funds_cards:
                 funds_file = io.BytesIO("\n".join(session.funds_cards).encode())
-                funds_file.name = f"Funds_{session.original_filename}"
+                funds_file.name = f"Funds_{session.filename}"
                 bot_instance.send_document(chat_id, funds_file, caption=f"<b>[@chk_error_bot] Funds_Cards: {len(session.funds_cards)}</b>", parse_mode="HTML")
 
             # 4. ملف Declined
             if session.declined_cards:
                 declined_file = io.BytesIO("\n".join(session.declined_cards).encode())
-                declined_file.name = f"Declined_{session.original_filename}"
+                declined_file.name = f"Declined_{session.filename}"
                 bot_instance.send_document(chat_id, declined_file, caption=f"<b>[@chk_error_bot] Declined_Cards: {len(session.declined_cards)}</b>", parse_mode="HTML")
 
         except Exception as file_err:
