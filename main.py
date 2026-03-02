@@ -112,12 +112,7 @@ def startup():
         logger.exception("Handler registration failed")
         sys.exit(1)
 
-    # ---- RESUME SESSIONS ----
-    try:
-        resume_all_sessions(bot)
-        logger.info("Active sessions resumed")
-    except Exception:
-        logger.exception("Failed to resume sessions")
+
 
     return bot
 
@@ -140,7 +135,7 @@ def main():
     load_and_clean_proxies()
 
     # ---- START BOT ----
-    os.environ["BOT_TOKEN"] = "8551333637:AAFjU3pH8Rv_xZuOtlrmovrZHM9FyduOrII"
+    os.environ["BOT_TOKEN"] = "7647806641:AAGMNr-2TfrwtcvNFvi8Ds6iY5quBZStl80"
     bot_instance = startup()
     
     logger.info("Bot is running...")
