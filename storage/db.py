@@ -1,23 +1,45 @@
 import sqlite3
 from pathlib import Path
 
+# ===== DATABASE PATH =====
 DB_PATH = Path(__file__).parent / "db.sqlite"
 
+
+# ==========================================================
+# CONNECTION
+# ==========================================================
 def get_connection():
-    """Return a SQLite connection with improved stability settings"""
+    """
+    Return a SQLite connection with production-grade stability.
+    Uses the default journal mode (DELETE), no WAL.
+    """
+
+    # Ensure folder exists
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
     conn = sqlite3.connect(DB_PATH, isolation_level=None)
-    # تفعيل وضع WAL (Write-Ahead Logging) لتحسين الاستقرار ومنع تلف البيانات عند الإغلاق المفاجئ
-    conn.execute("PRAGMA journal_mode=WAL;")
-    # التأكد من كتابة البيانات فوراً للقرص
-    conn.execute("PRAGMA synchronous=NORMAL;")
+
+    # ===== PERFORMANCE + STABILITY =====
+    conn.execute("PRAGMA journal_mode=DELETE;")  # Default journal mode
+    conn.execute("PRAGMA synchronous=FULL;")     # Maximum safety
+
+
     return conn
 
+
+# ==========================================================
+# DATABASE INITIALIZATION
+# ==========================================================
 def init_db():
-    """Initialize database and create tables if not exist"""
+    """
+    Initialize database and create tables if they don't exist.
+    Safe to run on every startup.
+    """
+
     with get_connection() as conn:
         cur = conn.cursor()
 
-        # ===== USERS =====
+        # ================= USERS =================
         cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY,
@@ -26,16 +48,15 @@ def init_db():
         )
         """)
 
-        # ===== CREDITS =====
+        # ================= CREDITS =================
         cur.execute("""
         CREATE TABLE IF NOT EXISTS credits (
             user_id INTEGER PRIMARY KEY,
-            balance INTEGER NOT NULL DEFAULT 0,
-            FOREIGN KEY(user_id) REFERENCES users(id)
+            balance INTEGER NOT NULL DEFAULT 0
         )
         """)
 
-        # ===== SESSIONS =====
+        # ================= SESSIONS =================
         cur.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
             user_id INTEGER PRIMARY KEY,
@@ -49,22 +70,20 @@ def init_db():
             funds INTEGER DEFAULT 0,
             declined INTEGER DEFAULT 0,
             chat_id INTEGER,
-            message_id INTEGER,
-            FOREIGN KEY(user_id) REFERENCES users(id)
+            message_id INTEGER
         )
         """)
 
-        # ===== BANS =====
+        # ================= BANS =================
         cur.execute("""
         CREATE TABLE IF NOT EXISTS bans (
             user_id INTEGER PRIMARY KEY,
             reason TEXT,
-            banned_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(id)
+            banned_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
         """)
 
-        # ===== BIN BANS =====
+        # ================= BIN BANS =================
         cur.execute("""
         CREATE TABLE IF NOT EXISTS bin_bans (
             bin TEXT PRIMARY KEY,
@@ -72,7 +91,7 @@ def init_db():
         )
         """)
 
-        # ===== GATE STATE =====
+        # ================= GATE STATE =================
         cur.execute("""
         CREATE TABLE IF NOT EXISTS gate_state (
             gate_key TEXT PRIMARY KEY,
@@ -82,35 +101,35 @@ def init_db():
         )
         """)
 
-        # ===== CODES =====
+        # ================= CODES =================
         cur.execute("""
         CREATE TABLE IF NOT EXISTS codes (
             code TEXT PRIMARY KEY,
             credits INTEGER NOT NULL,
             max_uses INTEGER NOT NULL,
             used_count INTEGER NOT NULL DEFAULT 0,
+            vip_minutes INTEGER DEFAULT 0,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
         """)
 
-        # التأكد من وجود العمود vip_minutes وإضافته لو مش موجود
+        # تأكد من وجود vip_minutes لو القاعدة قديمة
         cur.execute("PRAGMA table_info(codes)")
         columns = [col[1] for col in cur.fetchall()]
         if "vip_minutes" not in columns:
             cur.execute("ALTER TABLE codes ADD COLUMN vip_minutes INTEGER DEFAULT 0")
 
+        # ================= CODE REDEEMS =================
         cur.execute("""
         CREATE TABLE IF NOT EXISTS code_redeems (
             code TEXT NOT NULL,
             user_id INTEGER NOT NULL,
             redeemed_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (code, user_id),
-            FOREIGN KEY(code) REFERENCES codes(code),
-            FOREIGN KEY(user_id) REFERENCES users(id)
+            PRIMARY KEY (code, user_id)
         )
         """)
 
-        # ===== BUY PACKAGES =====
+        # ================= BUY PACKAGES =================
         cur.execute("""
         CREATE TABLE IF NOT EXISTS buy_packages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -121,6 +140,7 @@ def init_db():
         )
         """)
 
+        # ================= BUY ORDERS =================
         cur.execute("""
         CREATE TABLE IF NOT EXISTS buy_orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -129,27 +149,42 @@ def init_db():
             stars INTEGER NOT NULL,
             bonus INTEGER NOT NULL DEFAULT 0,
             status TEXT NOT NULL DEFAULT 'pending',
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(id)
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
         """)
 
-        # ===== HIT COUNTER =====
+        # ================= HIT COUNTER =================
         cur.execute("""
         CREATE TABLE IF NOT EXISTS hit_counter (
             id INTEGER PRIMARY KEY CHECK(id = 1),
             last_hit INTEGER NOT NULL DEFAULT 0
         )
         """)
-        cur.execute("INSERT OR IGNORE INTO hit_counter (id, last_hit) VALUES (1, 0)")
+        cur.execute("""
+        INSERT OR IGNORE INTO hit_counter (id, last_hit)
+        VALUES (1, 0)
+        """)
 
+
+# ==========================================================
+# HIT COUNTER
+# ==========================================================
 def get_next_hit_number():
-    """Retrieve last hit, increment by 1, update table, and return new hit number"""
+    """
+    Retrieve last hit, increment by 1, update table,
+    and return new hit number safely.
+    """
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute("SELECT last_hit FROM hit_counter WHERE id = 1")
         row = cur.fetchone()
+
         last_hit = row[0] if row else 0
         next_hit = last_hit + 1
-        cur.execute("UPDATE hit_counter SET last_hit = ? WHERE id = 1", (next_hit,))
+
+        cur.execute(
+            "UPDATE hit_counter SET last_hit = ? WHERE id = 1",
+            (next_hit,)
+        )
+
     return next_hit
