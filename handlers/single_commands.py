@@ -2,8 +2,6 @@ from telebot import types
 from telebot.apihelper import ApiTelegramException
 import time
 from threading import Lock
-import sqlite3
-from pathlib import Path
 import re
 
 from utils.classify import classify_result
@@ -23,11 +21,11 @@ from utils.messages import (
     get_user_name
 )
 
-from config.settings import HIT_CHAT, ADMINS
+from config.settings import HIT_CHAT
 
 
 # ======================================================
-# CARD EXTRACTOR + VALIDATOR
+# CARD EXTRACTOR
 # ======================================================
 
 def extract_valid_card(text: str):
@@ -109,94 +107,96 @@ def register_single_commands(bot):
         user_id = message.from_user.id
         user_name = get_user_name(message.from_user)
 
-        # 🚫 BANNED
+        # ===== BANNED =====
         if is_banned(user_id):
             bot.reply_to(
                 message,
-                "<b>🚫 YOU ARE BANNED FROM USING THIS BOT</b>",
+                "<b>YOU ARE BANNED FROM USING THIS BOT</b>",
                 parse_mode="HTML"
             )
             return
 
         gate_display_name, gate_func, gate_type, db_key = SINGLE_GATES[gate_key]
 
-        # ⛔ GATE DISABLED
+        # ===== GATE ENABLED =====
         if not is_gate_enabled(db_key):
             bot.reply_to(
                 message,
-                f"<b>⛔ GATE DISABLED</b>\n\n<b>{gate_display_name}</b> is currently closed by admin.",
+                f"<b>GATE DISABLED</b>\n\n<b>{gate_display_name}</b> is currently closed.",
                 parse_mode="HTML"
             )
             return
 
-        # 💳 CREDITS
+        # ===== CREDITS =====
         credits = get_credits(user_id)
         if credits == 0:
             bot.reply_to(
                 message,
-                "<b>❌ YOU HAVE NO CREDITS</b>\n<b>Please buy credits to continue.</b>",
+                "<b>YOU HAVE NO CREDITS</b>",
                 parse_mode="HTML"
             )
             return
 
-        # 🚫 BIN CHECK
+        # ===== BIN CHECK =====
         bin_num = card[:6]
         if is_bin_banned(bin_num):
-            bot.reply_to(message, "<b>❌ BIN BANNED</b>", parse_mode="HTML")
+            bot.reply_to(message, "<b>BIN BANNED</b>", parse_mode="HTML")
             return
 
-        # ⏳ WAIT MESSAGE
+        # ===== WAIT MESSAGE =====
         wait_msg = bot.reply_to(
             message,
-            "<b>⏳ PLEASE WAIT CHECKING YOUR CARD...</b>",
+            "<b>PLEASE WAIT CHECKING...</b>",
             parse_mode="HTML"
         )
         msg_id = wait_msg.message_id
 
         start = time.time()
 
-    try:
-        res = gate_func(card)
+        try:
+            res = gate_func(card)
 
-        if isinstance(res, tuple) and len(res) == 3:
-            result, gate_name, func_name = res
-        elif isinstance(res, tuple) and len(res) == 2:
-            result, gate_name = res
-            func_name = ""
-        else:
-            result = str(res)
-            gate_name = gate_display_name
-            func_name = ""
+            if isinstance(res, tuple) and len(res) == 3:
+                result, gate_name, func_name = res
+            elif isinstance(res, tuple) and len(res) == 2:
+                result, gate_name = res
+                func_name = ""
+            else:
+                result = str(res)
+                gate_name = gate_display_name
+                func_name = ""
 
-    except Exception as e:
-            result = f"Gateway Error"
+        except Exception:
+            result = "Gateway Error"
             gate_name = gate_display_name
             func_name = ""
 
         exec_time = round(time.time() - start, 2)
 
-        # ===== Deduct Credits =====
+        # ===== DEDUCT CREDITS =====
+        from storage.repositories.gates import get_cost
+        cost = get_cost(db_key)
+        
         if credits != -1:
             from storage.repositories.credits import deduct_credits
-            from storage.repositories.gates import get_cost
-            cost = get_cost(db_key)
             deduct_credits(user_id, cost)
 
-        # ===== CLASSIFY =====
+        # ===== CLASSIFY RESULT =====
         status = classify_result(result)
+        price_str = f"{cost} Credits"
 
         if status == "CHARGED":
-            text = charged_message(card, result, gate_name, exec_time, dato, user_name, func_name)
+            text = charged_message(card, result, gate_name, exec_time, dato, user_name, func_name, price=price_str)
             hit_type = "charged"
             pin = True
 
         elif status == "APPROVED":
-            text = approved_message(card, result, gate_name, exec_time, dato, user_name, func_name)
+            text = approved_message(card, result, gate_name, exec_time, dato, user_name, func_name, price=price_str)
             hit_type = "approved"
             pin = True
 
         elif status == "FUNDS":
-            text = insufficient_funds_message(card, result, gate_name, exec_time, dato, user_name, func_name)
+            text = insufficient_funds_message(card, result, gate_name, exec_time, dato, user_name, func_name, price=price_str)
             hit_type = "funds"
             pin = True
 
@@ -211,7 +211,15 @@ def register_single_commands(bot):
             safe_pin(bot, message.chat.id, msg_id)
 
         if hit_type:
-            hit_text = hit_detected_message(user_name, hit_type, exec_time, gate_name, "", func_name)
+            hit_text = hit_detected_message(
+                user_name,
+                hit_type,
+                exec_time,
+                gate_name,
+                "",
+                func_name,
+                price=price_str
+            )
             send_hit(bot, HIT_CHAT, hit_text)
 
 
@@ -233,24 +241,22 @@ def register_single_commands(bot):
         cmd = message.text.split()[0][1:].lower()
         card = None
 
-        # 1️⃣ Card after command
+        # Card after command
         parts = message.text.strip().split(maxsplit=1)
         if len(parts) == 2:
             card = extract_valid_card(parts[1])
 
-        # 2️⃣ Reply mode
+        # Reply mode
         if not card and message.reply_to_message:
             replied_text = message.reply_to_message.text
             card = extract_valid_card(replied_text)
 
-        # ❌ Wrong format
         if not card:
             bot.reply_to(
                 message,
-                "<b>❌ Wrong format</b>\n\n",
+                "<b>Wrong format</b>",
                 parse_mode="HTML"
             )
             return
 
-        # ✅ Valid card
         run_single_check(message, cmd, card)
