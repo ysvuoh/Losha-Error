@@ -173,7 +173,7 @@ def register_single_commands(bot):
             gate_name = gate_display_name
             func_name = ""
 
-    exec_time = round(time.time() - start, 2)
+            exec_time = round(time.time() - start, 2)
 
         # ===== Deduct Credits =====
         if credits != -1:
