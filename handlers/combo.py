@@ -270,7 +270,7 @@ def register_combo(bot):
         session.checking = True
         session.stop = False
 
-        logger.info(f"[FILE] UID={uid} TOTAL={total} CARDS={len(sessin.cards)} Filename={message.document.file_name} FILE_ID={message.document.file_id}")
+        logger.info(f"[FILE] UID={uid} TOTAL={total} CARDS={len(session.cards)} Filename={message.document.file_name} FILE_ID={message.document.file_id}")
 
         kb = types.InlineKeyboardMarkup(row_width=1)
         kb.add(
